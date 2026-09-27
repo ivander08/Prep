@@ -12,6 +12,8 @@ import { db, migrate, getMeta } from "./db.ts";
 import { fetchProblem, htmlToMarkdown } from "./leetcode.ts";
 import { buildTestCases, runPython } from "./executor.ts";
 import { dueQueue, nextUnsolved, listProgress, reviewCard, gradeAttempt } from "./srs.ts";
+import { tutorTurn, reviewAttempt } from "./tutor/index.ts";
+import { hintCeiling, ceilingReason } from "./tutor/policy.ts";
 
 migrate();
 
@@ -236,6 +238,110 @@ app.get("/api/review", (c) => {
 app.get("/api/next", (c) => {
   const list = c.req.query("list") ?? "neetcode150";
   return c.json({ next: nextUnsolved(list, Math.min(Number(c.req.query("limit") ?? 10), 50)) });
+});
+
+// ---------------------------------------------------------------------------
+// Tutor
+// ---------------------------------------------------------------------------
+
+/** Hint ceiling for this problem, from state only. Shown before the student asks. */
+app.get("/api/tutor/:slug/status", (c) => {
+  const slug = c.req.param("slug");
+  const row = db.query<{ qid: number }, [string]>("SELECT qid FROM problems WHERE slug = ?").get(slug);
+  if (!row) return c.json({ error: "unknown problem" }, 404);
+
+  const attempts = db
+    .query<{ attempts: number; unlocked: number; first_at: string | null }, [number]>(
+      `SELECT COUNT(*) AS attempts, COALESCE(MAX(solution_unlocked), 0) AS unlocked, MIN(started_at) AS first_at
+       FROM attempts WHERE qid = ?`,
+    )
+    .get(row.qid);
+
+  const minutes = attempts?.first_at ? (Date.now() - new Date(attempts.first_at).getTime()) / 60_000 : 0;
+  const state = {
+    attempts: attempts?.attempts ?? 0,
+    minutes: Math.max(0, minutes),
+    solutionUnlocked: (attempts?.unlocked ?? 0) === 1,
+  };
+
+  const history = db
+    .query<
+      { ceiling: number; emitted_level: number | null; rejected: number; ts: string; cost_idr: number | null },
+      [number]
+    >(
+      `SELECT ceiling, emitted_level, rejected, ts, cost_idr FROM tutor_turns
+       WHERE attempt_id IN (SELECT id FROM attempts WHERE qid = ?)
+       ORDER BY id DESC LIMIT 50`,
+    )
+    .all(row.qid);
+
+  return c.json({
+    ceiling: hintCeiling(state),
+    reason: ceilingReason(state),
+    attempts: state.attempts,
+    minutes: Math.round(state.minutes),
+    turns: history.length,
+    // Over-blocking is a measured failure, so surface it rather than hiding it.
+    rejectedTurns: history.filter((h) => h.rejected === 1).length,
+    costIdr: history.reduce((a, h) => a + (h.cost_idr ?? 0), 0),
+  });
+});
+
+app.post("/api/tutor/:slug/ask", async (c) => {
+  const slug = c.req.param("slug");
+  const body = (await c.req.json().catch(() => ({}))) as { message?: string; attemptId?: number };
+
+  const latest = db
+    .query<{ id: number }, [string]>(
+      "SELECT id FROM attempts WHERE qid = (SELECT qid FROM problems WHERE slug = ?) ORDER BY id DESC LIMIT 1",
+    )
+    .get(slug);
+
+  try {
+    const turn = await tutorTurn({
+      slug,
+      studentMessage: body.message ?? "",
+      attemptId: body.attemptId ?? latest?.id ?? null,
+    });
+    return c.json(turn);
+  } catch (e) {
+    return c.json({ error: e instanceof Error ? e.message : String(e) }, 502);
+  }
+});
+
+/** Explicit, logged solution unlock. Raises the ceiling to 6 for this problem. */
+app.post("/api/tutor/:slug/unlock", async (c) => {
+  const slug = c.req.param("slug");
+  const problem = db.query<{ qid: number }, [string]>("SELECT qid FROM problems WHERE slug = ?").get(slug);
+  if (!problem) return c.json({ error: "unknown problem" }, 404);
+
+  const now = new Date().toISOString();
+  db.run(
+    `INSERT INTO attempts (qid, started_at, ended_at, passed, tests_passed, tests_total,
+                           hints_used, max_hint_level, solution_unlocked, seconds, code, language, grade)
+     VALUES (?, ?, ?, NULL, NULL, NULL, 0, 6, 1, NULL, NULL, 'python3', 1)`,
+    [problem.qid, now, now],
+  );
+
+  return c.json({ unlocked: true, ceiling: 6, note: "Unlock recorded. The review grade for this problem is now Again." });
+});
+
+app.post("/api/tutor/:slug/review", async (c) => {
+  const slug = c.req.param("slug");
+  const body = (await c.req.json()) as {
+    code: string;
+    passed: boolean;
+    testsPassed: number;
+    testsTotal: number;
+    stderr?: string;
+  };
+
+  try {
+    const review = await reviewAttempt({ slug, ...body });
+    return c.json(review);
+  } catch (e) {
+    return c.json({ error: e instanceof Error ? e.message : String(e) }, 502);
+  }
 });
 
 app.get("/api/health", (c) =>

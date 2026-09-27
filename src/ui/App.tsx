@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CodeEditor } from "./components/CodeEditor";
+import { TutorPanel } from "./components/TutorPanel";
 import {
   api,
   GRADE_LABEL,
@@ -460,6 +461,26 @@ function ProblemView({ slug, onBack }: { slug: string; onBack: () => void }) {
                 <div className="notice warn" style={{ marginTop: 12 }}>{run.disclaimer}</div>
               </div>
             ) : null}
+
+            <div style={{ marginTop: 18 }}>
+              <TutorPanel
+                slug={problem.slug}
+                lastRun={
+                  run
+                    ? {
+                        passed: run.accepted,
+                        testsPassed: run.passed,
+                        testsTotal: run.total,
+                        stderr: run.stderr,
+                        code,
+                      }
+                    : null
+                }
+                onUnlocked={() => {
+                  setHintsUsed((n) => Math.max(n, problem.hints.length));
+                }}
+              />
+            </div>
           </div>
         </div>
       </main>
