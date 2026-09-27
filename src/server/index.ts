@@ -14,6 +14,8 @@ import { buildTestCases, runPython } from "./executor.ts";
 import { dueQueue, nextUnsolved, listProgress, reviewCard, gradeAttempt } from "./srs.ts";
 import { tutorTurn, reviewAttempt } from "./tutor/index.ts";
 import { hintCeiling, ceilingReason } from "./tutor/policy.ts";
+import { fetchCatalog, allRoleModels, setRoleModel, ROLE_LABEL, ROLES } from "./models.ts";
+import { masteryReport, hintDependence, studyStats, recomputeMastery } from "./mastery.ts";
 
 migrate();
 
@@ -222,6 +224,11 @@ app.post("/api/attempts", async (c) => {
   // Only schedule a card once the problem has actually been worked on.
   const schedule = body.passed || body.testsPassed > 0 ? reviewCard(problem.qid, grade, now) : null;
 
+  // Mastery is derived from the attempt log, so it is recomputed rather than incremented.
+  // One person's history is small enough that a full rebuild is cheaper than the risk of a
+  // derived table drifting from its source.
+  recomputeMastery();
+
   return c.json({
     grade,
     nextDue: schedule?.due.toISOString() ?? null,
@@ -342,6 +349,98 @@ app.post("/api/tutor/:slug/review", async (c) => {
   } catch (e) {
     return c.json({ error: e instanceof Error ? e.message : String(e) }, 502);
   }
+});
+
+// ---------------------------------------------------------------------------
+// Models
+// ---------------------------------------------------------------------------
+
+app.get("/api/models", async (c) => {
+  try {
+    const catalog = await fetchCatalog(c.req.query("refresh") === "1");
+    return c.json({
+      roles: allRoleModels(),
+      roleLabels: ROLE_LABEL,
+      availableRoles: ROLES,
+      models: catalog
+        .slice()
+        .sort((a, b) => {
+          if (a.free !== b.free) return a.free ? -1 : 1;
+          return (a.inputPerM ?? 0) - (b.inputPerM ?? 0);
+        }),
+    });
+  } catch (e) {
+    return c.json({ error: e instanceof Error ? e.message : String(e) }, 502);
+  }
+});
+
+app.post("/api/models/roles", async (c) => {
+  const body = (await c.req.json()) as { role?: string; model?: string | null };
+  if (!body.role || !ROLES.includes(body.role as (typeof ROLES)[number])) {
+    return c.json({ error: `role must be one of ${ROLES.join(", ")}` }, 400);
+  }
+  setRoleModel(body.role as (typeof ROLES)[number], body.model ?? null);
+  return c.json({ ok: true, roles: allRoleModels() });
+});
+
+// ---------------------------------------------------------------------------
+// Mastery, weakness, hint dependence
+// ---------------------------------------------------------------------------
+
+app.get("/api/mastery", (c) => {
+  return c.json({
+    patterns: masteryReport(),
+    hintDependence: hintDependence(),
+    stats: studyStats(),
+  });
+});
+
+app.post("/api/mastery/recompute", (c) => {
+  const n = recomputeMastery();
+  return c.json({ ok: true, patterns: n });
+});
+
+// ---------------------------------------------------------------------------
+// Companies
+// ---------------------------------------------------------------------------
+
+app.get("/api/companies", (c) => {
+  const rows = db
+    .query<{ company: string; n: number }, []>(
+      "SELECT company, COUNT(*) AS n FROM company_problems GROUP BY company ORDER BY n DESC",
+    )
+    .all();
+  return c.json({ companies: rows });
+});
+
+app.get("/api/companies/:name/problems", (c) => {
+  const name = c.req.param("name");
+  const limit = Math.min(Number(c.req.query("limit") ?? 60), 300);
+
+  const rows = db
+    .query<
+      {
+        qid: number;
+        slug: string;
+        title: string;
+        difficulty: string;
+        frequency: number | null;
+        pattern: string | null;
+        solved: number;
+      },
+      [string, number]
+    >(
+      `SELECT p.qid, p.slug, p.title, p.difficulty, c.frequency, p.pattern,
+              COALESCE((SELECT MAX(a.passed) FROM attempts a WHERE a.qid = p.qid), 0) AS solved
+       FROM company_problems c
+       JOIN problems p ON p.qid = c.qid
+       WHERE c.company = ?
+       ORDER BY c.frequency DESC NULLS LAST, p.difficulty
+       LIMIT ?`,
+    )
+    .all(name, limit);
+
+  return c.json({ company: name, problems: rows });
 });
 
 app.get("/api/health", (c) =>

@@ -30,7 +30,7 @@ So the two design rules this project holds to:
 
 ## Status
 
-Phases 1 and 2 of 5 are complete and verified.
+Phases 1-3 of 5 are complete and verified.
 
 | | |
 |---|---|
@@ -39,6 +39,10 @@ Phases 1 and 2 of 5 are complete and verified.
 | Executor | Python, deterministic verdicts, subprocess-isolated |
 | Scheduling | ts-fsrs (FSRS-6), capped at 90 days |
 | Tutor | deterministic hint ceiling, code-reveal detector, validate/repair |
+| Patterns | 450 problems tagged across 19 roadmap patterns |
+| Mastery | per-pattern Elo, weakness ranking, hint-dependence report |
+| Companies | 38 companies, 11,315 associations, frequency-ordered |
+| Models | 89 models with live Rupiah pricing, per-role selection |
 | System design | not yet (Phase 4) |
 
 ## The tutor
@@ -146,12 +150,18 @@ entries (`duplicate-integer` → `contains-duplicate`, `is-anagram` → `valid-a
 Joining on the NeetCode slug matched 176/250; joining on the `leetcode_url` slug matches
 250/250.
 
-**5. kenari prices are in micro-IDR (Rp × 1e6) per 1M tokens.** Reading `150000000` as
-Rp 150/M understates cost 1000×; reading it as Rp 150 *billion*/M overstates it 1000×.
-The correct reading is **Rp 150 per 1M input tokens** for `deepseek-v4-1-flash`. There is
-no per-request cost endpoint — `/v1/account/quota` reports whole Rupiah, so a sub-Rupiah
-call rounds to zero. Cost in the UI is computed locally from the model's published rates
-and labelled an estimate.
+**5. kenari prices are `micro_idr_per_1m_tokens` — Rp × 1e6.** So IDR per 1M tokens =
+catalog value ÷ 1e6, and `deepseek-v4-1-flash` at `20000000` means **Rp 20/M in**. Verified
+against the live gateway rather than the docs: a call with 38 input and 29,000 output tokens
+moved the quota by exactly **Rp 1**, which the Rp 20/M reading predicts (Rp 1.45) and an
+Rp 150/M reading does not (Rp 8.71).
+
+Prices also *change* — the same model was listed at 150,000,000 and 20,000,000 micro-IDR on
+the same day. The client therefore reads rates from the cached catalog instead of a
+hardcoded table.
+
+There is no per-request cost endpoint, and `/v1/account/quota` reports whole Rupiah, so a
+sub-Rupiah call rounds to zero. Cost in the UI is computed locally and labelled an estimate.
 
 **6. `/v1/models` advertises models the router cannot serve.** 3 of 8 `:free` models
 returned `model_not_found` when actually called. Never hardcode a model id.
@@ -178,6 +188,6 @@ a hosted product and why the repo ships no problem content.
 
 - **Phase 1** — catalog, executor, SRS, review queue ✅
 - **Phase 2** — the tutor: deterministic hint ceiling, code-reveal detector, validate/repair ✅
-- **Phase 3** — per-pattern mastery, weakness view, company tags, SQL track
+- **Phase 3** — per-pattern mastery, weakness view, company tags, model picker ✅
 - **Phase 4** — system design: 45-min mock, rubric grading
 - **Phase 5** — stack-specific and behavioral tracks

@@ -38,6 +38,7 @@ const meta = (): CallMeta => ({
   usage: { tokensIn: 10, tokensOut: 10, cachedTokens: 0 },
   cost: { idr: 0, tokensIn: 10, tokensOut: 10, cached: 0 },
   repaired: false,
+  fellBackFrom: null,
 });
 
 let queue: Array<unknown> = [];

@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CodeEditor } from "./components/CodeEditor";
 import { TutorPanel } from "./components/TutorPanel";
+import { ModelPicker } from "./components/ModelPicker";
+import { MasteryView } from "./components/MasteryView";
+import { CompaniesView } from "./components/CompaniesView";
 import {
   api,
   GRADE_LABEL,
@@ -18,7 +21,7 @@ const STARTERS: Record<string, string> = {
   python3: "class Solution:\n    def solve(self):\n        pass\n",
 };
 
-type View = "overview" | "list" | "review";
+type View = "overview" | "list" | "review" | "weakness" | "companies" | "models";
 
 export function App() {
   const [view, setView] = useState<View>("overview");
@@ -102,6 +105,15 @@ export function App() {
           <button className={view === "list" ? "active" : ""} onClick={() => setView("list")}>
             Practice
           </button>
+          <button className={view === "weakness" ? "active" : ""} onClick={() => setView("weakness")}>
+            Weakness
+          </button>
+          <button className={view === "companies" ? "active" : ""} onClick={() => setView("companies")}>
+            Companies
+          </button>
+          <button className={view === "models" ? "active" : ""} onClick={() => setView("models")}>
+            Models
+          </button>
         </nav>
 
         <div>
@@ -145,6 +157,12 @@ export function App() {
         {view === "list" ? (
           <ListView name={activeList} problems={problems} onOpen={setOpenSlug} />
         ) : null}
+
+        {view === "weakness" ? <MasteryView /> : null}
+
+        {view === "companies" ? <CompaniesView onOpen={setOpenSlug} /> : null}
+
+        {view === "models" ? <ModelPicker /> : null}
       </main>
     </div>
   );

@@ -203,7 +203,7 @@ export async function tutorTurn(args: {
   let turn: Turn;
   let meta: CallMeta;
   try {
-    const r = await structured(messages, TURN_TOOL, validateTurn);
+    const r = await structured(messages, TURN_TOOL, validateTurn, { role: "tutor" });
     turn = r.value;
     meta = r.meta;
   } catch (e) {
@@ -232,7 +232,7 @@ export async function tutorTurn(args: {
     ];
 
     try {
-      const r2 = await structured(retryMessages, TURN_TOOL, validateTurn);
+      const r2 = await structured(retryMessages, TURN_TOOL, validateTurn, { role: "tutor" });
       const retryViolations = detectViolations(r2.value, ceiling);
       meta = r2.meta;
 
@@ -363,7 +363,7 @@ export async function reviewAttempt(args: {
     },
   ];
 
-  const { result, meta } = await chat(messages, { maxTokens: 1200 });
+  const { result, meta } = await chat(messages, { maxTokens: 1200, role: "review" });
   const text = result.content ?? "";
 
   const complexity = /Complexity:\s*(.+)/i.exec(text)?.[1]?.trim() ?? "unknown";
