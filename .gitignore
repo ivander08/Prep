@@ -1,0 +1,23 @@
+# Data — the SQLite database and anything fetched from LeetCode
+data/
+
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Secrets
+.env
+.env.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+
+# Scratch
+*.log
