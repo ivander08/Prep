@@ -9,8 +9,9 @@
 
 import { Hono } from "hono";
 import { db, migrate, getMeta } from "./db.ts";
-import { fetchProblem, htmlToMarkdown } from "./leetcode.ts";
-import { buildTestCases, runFullTests, type FullTestRow } from "./executor.ts";
+import { fetchProblem, htmlToMarkdown, hintToMarkdown } from "./leetcode.ts";
+import { buildTestCases, runFullTests, type FullTestRow, type ProblemMeta } from "./executor.ts";
+import { runSuite } from "./grading.ts";
 import { runInLanguage } from "./runner.ts";
 import { LANGUAGES, detectAvailableLanguages } from "./languages.ts";
 import { dueQueue, nextUnsolved, listProgress, reviewCard, gradeAttempt } from "./srs.ts";
@@ -110,7 +111,7 @@ app.get("/api/problems/:slug", async (c) => {
     difficulty: row.difficulty,
     topics: (row.topics ?? "").split(",").filter(Boolean),
     statementMd,
-    hints: JSON.parse(hints ?? "[]") as string[],
+    hints: (JSON.parse(hints ?? "[]") as string[]).map(hintToMarkdown),
     snippets: JSON.parse(snippets ?? "[]") as Array<{ langSlug: string; code: string }>,
     meta: parsed.meta,
     testCases: parsed.cases.map((tc) => ({ args: tc.args, expected: tc.expected })),
@@ -147,10 +148,50 @@ app.post("/api/run", async (c) => {
     language === "python3"
       ? db
           .query<FullTestRow, [string]>(
-            "SELECT slug, entry_point, prelude, test_body FROM full_tests WHERE slug = ?",
+            "SELECT slug, entry_point, prelude, test_body, io_cases FROM full_tests WHERE slug = ?",
           )
           .get(body.slug)
       : null;
+
+  // Structured I/O grading supersedes the assert-based path for Python: it can apply a
+  // semantic verifier, so a correct solution that orders its answer differently is accepted
+  // rather than rejected.
+  if (language === "python3" && suite?.io_cases) {
+    const meta = problem.meta_json ? (JSON.parse(problem.meta_json) as ProblemMeta) : null;
+    const graded = await runSuite({
+      slug: body.slug,
+      code: body.code,
+      fnName: body.fnName ?? meta?.name ?? "",
+      ioJson: suite.io_cases,
+      meta,
+    });
+
+    return c.json({
+      source: "suite",
+      accepted: graded.accepted,
+      passed: graded.passed,
+      total: graded.total,
+      skipped: graded.skipped,
+      semantic: graded.semanticCount > 0,
+      durationMs: graded.durationMs,
+      cases: graded.cases.slice(0, 40).map((c) => ({
+        index: c.index,
+        args: [c.input],
+        expected: c.expected,
+        got: c.got,
+        pass: c.pass,
+        ...(c.error ? { error: c.error } : {}),
+      })),
+      failedAssertion: graded.cases.find((c) => !c.pass)?.input ?? null,
+      stderr: graded.stderr,
+      parseWarning: null,
+      disclaimer:
+        `${graded.total} structured cases from the community LeetCodeDataset (Apache-2.0)` +
+        (graded.semanticCount > 0 ? ", graded with a semantic verifier so any valid ordering is accepted" : "") +
+        (graded.skipped > 0 ? `; ${graded.skipped} skipped as ungradeable` : "") +
+        `. Not LeetCode's own hidden tests.`,
+    });
+  }
 
   if (suite) {
     const full = await runFullTests({ code: body.code, suite });
@@ -177,6 +218,25 @@ app.post("/api/run", async (c) => {
   });
 
   if (parsed.cases.length === 0) {
+    // Design problems ("implement a Trie", "design an LRU cache") have a different metadata
+    // shape: a classname, a constructor, and a list of methods, rather than one function.
+    // The dataset has no suite for them either, so say so plainly instead of leaking the
+    // internal reason "no params in metaData", which reads like a bug.
+    const meta = problem.meta_json ? (JSON.parse(problem.meta_json) as Record<string, unknown>) : {};
+    if (typeof meta.classname === "string") {
+      return c.json(
+        {
+          error:
+            `${meta.classname} is a design problem: you implement a class with several methods, ` +
+            `and it is exercised through a sequence of calls rather than one function. ` +
+            `This runner grades single-function problems, so it cannot check your work here yet.`,
+          designProblem: true,
+          className: meta.classname,
+        },
+        422,
+      );
+    }
+
     return c.json({ error: parsed.parseWarning ?? "no runnable test cases", parseWarning: true }, 422);
   }
 

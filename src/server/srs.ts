@@ -190,19 +190,39 @@ export function nextUnsolved(listName: string, limit = 10): NextItem[] {
     .all(listName, limit);
 }
 
-/** Progress through a list. */
-export function listProgress(listName: string): { total: number; solved: number } {
-  const total = db
-    .query<{ n: number }, [string]>(
-      "SELECT COUNT(*) AS n FROM lists l JOIN problems p ON p.qid = l.qid WHERE l.name = ? AND p.paid_only = 0",
+/**
+ * Progress through a list.
+ *
+ * `total` counts EVERY problem in the list, including LeetCode Premium-only ones, because
+ * that is the list's real size — Blind 75 has 75 problems, not 69. Reporting only the free
+ * ones made a finished list look unfinished and hid why.
+ *
+ * `locked` and `free` are returned so the UI can say "6 premium" rather than quietly
+ * shrinking the denominator. `solved` counts distinct solved problems.
+ */
+export function listProgress(listName: string): {
+  total: number;
+  solved: number;
+  free: number;
+  locked: number;
+} {
+  const row = db
+    .query<{ total: number; free: number }, [string]>(
+      `SELECT COUNT(*) AS total,
+              SUM(CASE WHEN p.paid_only = 0 THEN 1 ELSE 0 END) AS free
+       FROM lists l JOIN problems p ON p.qid = l.qid WHERE l.name = ?`,
     )
-    .get(listName)?.n ?? 0;
+    .get(listName);
+
   const solved = db
     .query<{ n: number }, [string]>(
-      `SELECT COUNT(*) AS n FROM lists l
+      `SELECT COUNT(DISTINCT l.qid) AS n FROM lists l
        JOIN attempts a ON a.qid = l.qid
        WHERE l.name = ? AND a.passed = 1`,
     )
     .get(listName)?.n ?? 0;
-  return { total, solved };
+
+  const total = row?.total ?? 0;
+  const free = row?.free ?? 0;
+  return { total, solved, free, locked: total - free };
 }

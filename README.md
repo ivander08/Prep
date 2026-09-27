@@ -167,12 +167,51 @@ hardcoded table.
 There is no per-request cost endpoint, and `/v1/account/quota` reports whole Rupiah, so a
 sub-Rupiah call rounds to zero. Cost in the UI is computed locally and labelled an estimate.
 
-**6. `/v1/models` advertises models the router cannot serve.** 3 of 8 `:free` models
+**6. Design problems have a different metadata shape.** "Implement a Trie" has a `classname`,
+a `constructor`, and a list of `methods`, not a single function signature. The runner grades
+single-function problems, so it reports that plainly rather than leaking
+"no params in metaData", which reads like a bug.
+
+**7. Official hints are raw HTML.** They were stored and rendered verbatim, so a hint read
+"say `<code>x</code>`" instead of "say `x`". They now go through the same converter as
+statements, and the UI renders the markdown.
+
+**8. `/v1/models` advertises models the router cannot serve.** 3 of 8 `:free` models
 returned `model_not_found` when actually called. Never hardcode a model id.
 
 Also: LeetCode's `__type` introspection is disabled, `companyTags` returns null
 unauthenticated, and the SQL study plan's slug is `top-sql-50` — `sql-50` returns `null`
 silently rather than erroring.
+
+## Grading
+
+Correctness is decided two ways, deliberately kept separate:
+
+- **Execution** decides whether the code is correct. A test runner is authoritative; the LLM
+  is never asked to re-judge correctness, because inviting it to would let it contradict a
+  deterministic result.
+- **The LLM** only explains: complexity (a hedged estimate — the best published model scores
+  ~41% on time-complexity prediction), style, and whether a stronger approach exists.
+
+That last part answers a question a test runner cannot. Passing tests mean a solution is
+*correct*, not *optimal* — a brute-force Two Sum passes all 80 assertions and is still O(n²).
+The review reports both, and says "Optimal" when there is nothing better.
+
+### Multiple valid answers
+
+Some problems accept more than one correct answer — `group-anagrams` accepts any group
+order, `permutations` any permutation order, `3sum` any triple order. The imported suites
+assert exact equality, which marked a **correct** solution WRONG. Measured before the fix,
+passing after.
+
+`verifiers.ts` holds semantic comparators for those problems: any valid ordering passes,
+everything else keeps strict equality. The list is explicit rather than heuristic, because
+guessing "this looks order-free" is how a false ACCEPT gets introduced, and a false accept
+teaches you something untrue.
+
+Cases whose stored expected value is a Python exception message (23 records) are **dropped,
+not graded** — the dataset's own reference solution crashed on those, so treating the message
+as an expectation would fail every correct submission.
 
 ## Test suites
 
@@ -237,5 +276,6 @@ a hosted product and why the repo ships no problem content.
 - **Phase 2** — the tutor: deterministic hint ceiling, code-reveal detector, validate/repair ✅
 - **Phase 3** — per-pattern mastery, weakness view, company tags, model picker ✅
 - **Phase 3.5** — full test suites, multi-language execution, roadmap, sort/filter/group ✅
+- **Phase 3.6** — semantic grading for multi-answer problems, dark editor theme, true list sizes ✅
 - **Phase 4** — system design: 45-min mock, rubric grading
 - **Phase 5** — stack-specific and behavioral tracks

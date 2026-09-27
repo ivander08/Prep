@@ -217,6 +217,18 @@ export async function fetchStudyPlan(
  *
  * Hand-rolled rather than pulling a dependency — the tag set is tiny and fixed.
  */
+/**
+ * Convert an official hint to markdown.
+ *
+ * LeetCode returns hints as raw HTML fragments — `<code>x</code>`, `<strong>`, entities.
+ * They were being stored and rendered verbatim, so a hint read "say <code>x</code>" instead
+ * of "say `x`". Same converter as statements; kept as a named export so the cached hints can
+ * be re-converted without re-fetching.
+ */
+export function hintToMarkdown(html: string): string {
+  return htmlToMarkdown(html);
+}
+
 export function htmlToMarkdown(input: string): string {
   let s = input;
 

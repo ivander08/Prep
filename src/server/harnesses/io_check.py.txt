@@ -1,0 +1,36 @@
+# Python harness for structured input/output grading.
+#
+# Reads a base64 JSON payload of cases, calls the user's solution, and PRINTS the raw
+# returned value for each. It deliberately does not compare anything.
+#
+# Why: the dataset's `test` field asserts exact equality, which rejects correct solutions
+# for problems that accept more than one ordering (group-anagrams, permutations, 3sum, ...).
+# Emitting raw values lets TypeScript apply a semantic verifier instead, where the rules are
+# testable rather than baked into a generated assertion.
+#
+# Placeholders substituted at run time (see harnesses.ts): the user's solution, the base64
+# case payload, and the method name. Described rather than written literally, because a
+# literal mention would itself be substituted.
+
+__USER_CODE__
+
+PAYLOAD_B64 = "__PAYLOAD_B64__"
+FN = "__FN__"
+
+import json, base64, sys
+
+P = json.loads(base64.b64decode(PAYLOAD_B64).decode("utf-8"))
+_target = getattr(Solution(), FN, None)
+if _target is None:
+    print(json.dumps({"fatal": "class Solution has no method " + FN}))
+    sys.exit(0)
+
+out = []
+for i, case in enumerate(P["cases"]):
+    try:
+        got = _target(*case["args"])
+        out.append({"index": i, "got": got})
+    except Exception as e:
+        out.append({"index": i, "got": None, "error": type(e).__name__ + ": " + str(e)[:200]})
+
+print(json.dumps({"results": out}))

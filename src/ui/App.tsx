@@ -115,7 +115,12 @@ export function App() {
                 }}
               >
                 <span>{l}</span>
-                {s ? <span className="count">{s.solved}/{s.total}</span> : null}
+                {s ? (
+                  <span className="count" title={s.locked > 0 ? `${s.locked} require LeetCode Premium` : undefined}>
+                    {s.solved}/{s.total}
+                    {s.locked > 0 ? <span className="locked"> ·{s.locked}P</span> : null}
+                  </span>
+                ) : null}
               </button>
             );
           })}
@@ -212,7 +217,10 @@ function Overview({
               <span className="mono tally">
                 {l.solved}/{l.total}
               </span>
-              <span className="mono pct">{pct.toFixed(0)}%</span>
+              <span className="mono pct">
+                {l.locked > 0 ? <span className="locked" title={`${l.locked} require LeetCode Premium`}>{l.locked}P</span> : null}
+                {pct.toFixed(0)}%
+              </span>
             </div>
           );
         })}
@@ -392,7 +400,9 @@ function ProblemView({ slug, onBack }: { slug: string; onBack: () => void }) {
                     }}
                   >
                     <summary>Hint {i + 1}</summary>
-                    <div style={{ marginTop: 6 }}>{h}</div>
+                    <div style={{ marginTop: 6 }}>
+                      <Statement md={h} />
+                    </div>
                   </details>
                 ))}
               </div>

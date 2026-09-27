@@ -28,6 +28,10 @@ export type TutorTurnResponse = {
 export type ReviewResponse = {
   complexity: string;
   notes: string;
+  /** The complexity a stronger approach would reach, or null if already optimal. */
+  betterApproach: string | null;
+  betterDetail: string | null;
+  optimal: boolean;
   model: string;
   costIdr: number;
   error?: string;
@@ -223,6 +227,19 @@ export function TutorPanel({
                     <strong>Complexity</strong> <span className="muted small">(estimate)</span>: {e.review.complexity}
                   </div>
                   <div style={{ marginTop: 6 }}>{e.review.notes}</div>
+                  <div className={`better${e.review.optimal ? " optimal" : ""}`}>
+                    {e.review.optimal ? (
+                      <>
+                        <span className="better-label">Optimal</span> No stronger approach available for this problem.
+                      </>
+                    ) : (
+                      <>
+                        <span className="better-label">Stronger approach</span>
+                        <span className="mono">{e.review.betterApproach}</span>
+                        {e.review.betterDetail ? <div className="better-detail">{e.review.betterDetail}</div> : null}
+                      </>
+                    )}
+                  </div>
                 </div>
               </div>
             );

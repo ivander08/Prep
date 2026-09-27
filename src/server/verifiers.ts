@@ -1,0 +1,96 @@
+/**
+ * Verifiers — semantic correctness checks for problems with more than one valid answer.
+ *
+ * THE PROBLEM THIS SOLVES
+ * The imported test suites assert exact equality:
+ *
+ *     assert candidate(strs = ['a','b','c','d','e']) == [['a'],['b'],['c'],['d'],['e']]
+ *
+ * For `group-anagrams` that is wrong. LeetCode accepts the groups in any order and the
+ * members in any order, so a correct solution that returns
+ * `[['e'],['d'],['c'],['b'],['a']]` is marked WRONG. Measured: a correct solution was
+ * rejected for exactly this reason.
+ *
+ * The same applies to `permutations`, `3sum`, `subsets`, `combination-sum`, `two-sum` with
+ * multiple index pairs, and every problem whose statement says "in any order".
+ *
+ * HOW IT IS FIXED
+ * The harness emits the raw returned value instead of comparing it, and TypeScript decides.
+ * That moves the judgement out of a generated assertion and into testable code, which is
+ * the right place for it: these rules can be unit-tested, whereas a string-substituted
+ * assertion cannot.
+ *
+ * SCOPE: only problems where the answer set is genuinely order-free are listed. Everything
+ * else keeps strict equality, because strictness is correct for them and loosening it would
+ * let real bugs through.
+ */
+
+export type Verdict = { pass: boolean; reason?: string };
+
+/** Sort nested arrays by their JSON form, so [[1,2],[3]] and [[3],[1,2]] compare equal. */
+function canonical(v: unknown): string {
+  const norm = (x: unknown): unknown => {
+    if (Array.isArray(x)) return x.map(norm).sort((a, b) => (JSON.stringify(a) < JSON.stringify(b) ? -1 : 1));
+    return x;
+  };
+  return JSON.stringify(norm(v));
+}
+
+function asArray(v: unknown): unknown[] | null {
+  return Array.isArray(v) ? v : null;
+}
+
+/**
+ * A verifier returns pass/fail for one case. `undefined` means "no verifier; fall back to
+ * the strict comparison".
+ */
+export type Verifier = (got: unknown, expected: unknown) => Verdict;
+
+const ORDER_FREE_GROUPS: Verifier = (got, expected) => {
+  const g = asArray(got);
+  const e = asArray(expected);
+  if (!g || !e) return { pass: false, reason: "expected a list of groups" };
+  if (g.length !== e.length) return { pass: false, reason: `got ${g.length} groups, expected ${e.length}` };
+  return canonical(g) === canonical(e)
+    ? { pass: true }
+    : { pass: false, reason: "groups differ from any accepted ordering" };
+};
+
+/** Sets of indices or values, where the answer set order is free but membership is not. */
+const ORDER_FREE_FLAT: Verifier = (got, expected) => {
+  const g = asArray(got);
+  const e = asArray(expected);
+  if (!g || !e) return { pass: false, reason: "expected a list" };
+  if (g.length !== e.length) return { pass: false, reason: `got ${g.length} items, expected ${e.length}` };
+  return canonical(g) === canonical(e) ? { pass: true } : { pass: false, reason: "contents differ" };
+};
+
+/**
+ * Which problems accept more than one ordering.
+ *
+ * Keyed by slug. Deliberately a short, explicit list rather than a heuristic: guessing
+ * "this looks order-free" is how a false ACCEPT gets introduced, and a false accept is
+ * worse than a false reject because it teaches you something untrue.
+ */
+const VERIFIERS: Record<string, Verifier> = {
+  "group-anagrams": ORDER_FREE_GROUPS,
+  permutations: ORDER_FREE_GROUPS,
+  "permutations-ii": ORDER_FREE_GROUPS,
+  subsets: ORDER_FREE_GROUPS,
+  "subsets-ii": ORDER_FREE_GROUPS,
+  "3sum": ORDER_FREE_GROUPS,
+  "4sum": ORDER_FREE_GROUPS,
+  "combination-sum": ORDER_FREE_GROUPS,
+  "combination-sum-ii": ORDER_FREE_GROUPS,
+  "combination-sum-iii": ORDER_FREE_GROUPS,
+  "letter-combinations-of-a-phone-number": ORDER_FREE_FLAT,
+  "partition-labels": ORDER_FREE_FLAT,
+  "top-k-frequent-elements": ORDER_FREE_FLAT,
+  "k-closest-points-to-origin": ORDER_FREE_GROUPS,
+  "find-all-anagrams-in-a-string": ORDER_FREE_FLAT,
+  "pacific-atlantic-water-flow": ORDER_FREE_GROUPS,
+};
+
+export function verifierFor(slug: string): Verifier | null {
+  return VERIFIERS[slug] ?? null;
+}

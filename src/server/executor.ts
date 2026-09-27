@@ -232,6 +232,8 @@ export type FullTestRow = {
   entry_point: string;
   prelude: string;
   test_body: string;
+  /** JSON array of {input, output} pairs, when the import captured them. */
+  io_cases: string | null;
 };
 
 export type FullRunResult = {

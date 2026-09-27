@@ -3,8 +3,13 @@
 export type ListSummary = {
   name: string;
   n: number;
+  /** Every problem in the list, including LeetCode Premium-only ones. */
   total: number;
   solved: number;
+  /** Problems viewable without LeetCode Premium. */
+  free: number;
+  /** Premium-only problems, which cannot be opened or run here. */
+  locked: number;
 };
 
 export type ProblemRow = {

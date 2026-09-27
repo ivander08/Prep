@@ -317,6 +317,36 @@ export async function tutorTurn(args: {
  * only explains. Complexity in particular is a hedged opinion: the best published model
  * scores ~41% on time-complexity prediction, so it is labelled as an estimate.
  */
+export type ReviewResult = {
+  complexity: string;
+  notes: string;
+  /** The complexity a stronger approach would reach, or null if this is already optimal. */
+  betterApproach: string | null;
+  /** What specifically to change, and the tradeoff. */
+  betterDetail: string | null;
+  /** True when the model judges the solution already optimal for the problem. */
+  optimal: boolean;
+  model: string;
+  costIdr: number;
+};
+
+/**
+ * Post-attempt review: complexity, style, and — the part that answers "is there better?" —
+ * the stronger approach if one exists.
+ *
+ * Correctness is NOT asked of the model here. The executor already decided it, and asking a
+ * model to re-judge correctness invites it to contradict a deterministic result. This only
+ * explains and compares.
+ *
+ * Complexity is a hedged opinion and labelled as such in the UI: the best published model
+ * scores ~41% on time-complexity prediction, so it is presented as an estimate rather than a
+ * verdict.
+ *
+ * The "better approach" field is the honest answer to a question the test runner cannot
+ * answer. Passing tests mean the solution is CORRECT, not that it is optimal — a brute-force
+ * Two Sum passes all 80 assertions and is still O(n²). The two judgements are deliberately
+ * separate, and the reply shape forces the model to state which one applies.
+ */
 export async function reviewAttempt(args: {
   slug: string;
   code: string;
@@ -324,10 +354,10 @@ export async function reviewAttempt(args: {
   testsPassed: number;
   testsTotal: number;
   stderr?: string;
-}): Promise<{ complexity: string; notes: string; model: string; costIdr: number }> {
+}): Promise<ReviewResult> {
   const problem = db
-    .query<{ title: string; statement_md: string | null }, [string]>(
-      "SELECT title, statement_md FROM problems WHERE slug = ?",
+    .query<{ title: string; statement_md: string | null; difficulty: string }, [string]>(
+      "SELECT title, statement_md, difficulty FROM problems WHERE slug = ?",
     )
     .get(args.slug);
   if (!problem) throw new Error(`unknown problem: ${args.slug}`);
@@ -338,17 +368,23 @@ export async function reviewAttempt(args: {
       content: [
         "You review a student's solution to a coding problem. Be specific and brief.",
         "",
-        "You are NOT deciding correctness — a test runner already did. Do not contradict it.",
-        "Complexity is an estimate; say so if the code is ambiguous.",
+        "IMPORTANT — you are NOT deciding correctness. A test runner already did, and it is",
+        "authoritative. Never contradict it, and never say a solution is wrong.",
+        "",
+        "A passing solution can still be suboptimal. That is what you are here to identify.",
+        "Complexity is an estimate; say so when the code is ambiguous.",
+        "",
         "Reply with exactly this shape and nothing else:",
         "Complexity: <time and space, with a one-line justification>",
         "Notes: <at most three sentences on style, idiom, and what to improve>",
+        "Better: <either 'none — already optimal' OR the time/space of a stronger approach>",
+        "BetterDetail: <either 'n/a' OR one or two sentences naming the technique and the tradeoff>",
       ].join("\n"),
     },
     {
       role: "user",
       content: [
-        `Problem: ${problem.title}`,
+        `Problem: ${problem.title} (${problem.difficulty})`,
         "",
         problem.statement_md ?? "",
         "",
@@ -367,9 +403,24 @@ export async function reviewAttempt(args: {
   const text = result.content ?? "";
 
   const complexity = /Complexity:\s*(.+)/i.exec(text)?.[1]?.trim() ?? "unknown";
-  const notes = /Notes:\s*([\s\S]+)/i.exec(text)?.[1]?.trim() ?? text.trim();
+  const notes = /Notes:\s*([\s\S]*?)(?=\nBetter:|$)/i.exec(text)?.[1]?.trim() ?? text.trim();
+  const betterRaw = /Better:\s*(.+)/i.exec(text)?.[1]?.trim() ?? null;
+  const detailRaw = /BetterDetail:\s*([\s\S]+)/i.exec(text)?.[1]?.trim() ?? null;
 
-  return { complexity, notes, model: meta.model, costIdr: meta.cost.idr };
+  // Treat "none"/"n/a"/"already optimal" as no stronger approach rather than printing it.
+  const saysOptimal = !betterRaw || /^(none|n\/a|already optimal)/i.test(betterRaw);
+  const betterApproach = saysOptimal ? null : betterRaw;
+  const betterDetail = saysOptimal || !detailRaw || /^n\/a/i.test(detailRaw) ? null : detailRaw;
+
+  return {
+    complexity,
+    notes,
+    betterApproach,
+    betterDetail,
+    optimal: saysOptimal,
+    model: meta.model,
+    costIdr: meta.cost.idr,
+  };
 }
 
 export { LEVEL_LABEL };

@@ -1,0 +1,12 @@
+-- Structured input/output pairs from the dataset's `input_output` field.
+--
+-- The `test` field is a `check(candidate)` function containing N assert statements, which
+-- can only be evaluated by RUNNING it. That makes semantic verification impossible: to
+-- accept a different-but-valid ordering you would have to rewrite the generated assertion.
+--
+-- `input_output` is already a parsed JSON array of {"input": "...", "output": "..."} pairs,
+-- so the expected value can be compared in TypeScript instead. That moves the judgement out
+-- of a generated string and into testable code, which is where the order-free rules belong.
+--
+-- `test` is kept: it remains the fallback for problems whose I/O cannot be parsed.
+ALTER TABLE full_tests ADD COLUMN io_cases TEXT;

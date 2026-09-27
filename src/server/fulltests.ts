@@ -24,12 +24,16 @@ import { db, migrate, setMeta } from "./db.ts";
 const BASE = "https://huggingface.co/datasets/newfacade/LeetCodeDataset/resolve/main";
 const SPLITS = ["LeetCodeDataset-test.jsonl", "LeetCodeDataset-train.jsonl"];
 
+type IoPair = { input: string; output: string };
+
 type Record = {
   task_id: string;
   question_id: string;
   entry_point: string;
   prompt: string;
   test: string;
+  /** Already a parsed array of {input, output} in the dataset JSON. */
+  input_output?: IoPair[] | string;
 };
 
 /**
@@ -87,17 +91,18 @@ export async function ingestFullTests(): Promise<{ imported: number; matched: nu
   );
 
   const insert = db.query(
-    `INSERT INTO full_tests (slug, question_id, entry_point, prelude, test_body, source, imported_at)
-     VALUES (?, ?, ?, ?, ?, 'newfacade/LeetCodeDataset', ?)
+    `INSERT INTO full_tests (slug, question_id, entry_point, prelude, test_body, io_cases, source, imported_at)
+     VALUES (?, ?, ?, ?, ?, ?, 'newfacade/LeetCodeDataset', ?)
      ON CONFLICT(slug) DO UPDATE SET
        entry_point = excluded.entry_point, prelude = excluded.prelude,
-       test_body = excluded.test_body, imported_at = excluded.imported_at`,
+       test_body = excluded.test_body, io_cases = excluded.io_cases,
+       imported_at = excluded.imported_at`,
   );
 
   let imported = 0;
   let matched = 0;
   const now = new Date().toISOString();
-  let pending: Array<[string, string, string, string, string, string]> = [];
+  let pending: Array<[string, string, string, string, string, string | null, string]> = [];
 
   const flush = () => {
     if (pending.length === 0) return;
@@ -121,7 +126,19 @@ export async function ingestFullTests(): Promise<{ imported: number; matched: nu
       // catalog rather than accumulating dead rows.
       if (known.has(rec.task_id)) {
         matched++;
-        pending.push([rec.task_id, rec.question_id ?? "", rec.entry_point, rec.prompt ?? "", rec.test, now]);
+        // `input_output` arrives already parsed in most records but as a JSON string in
+        // some; normalise to a JSON text column either way.
+        let io: string | null = null;
+        if (Array.isArray(rec.input_output)) io = JSON.stringify(rec.input_output);
+        else if (typeof rec.input_output === "string") {
+          try {
+            JSON.parse(rec.input_output);
+            io = rec.input_output;
+          } catch {
+            io = null;
+          }
+        }
+        pending.push([rec.task_id, rec.question_id ?? "", rec.entry_point, rec.prompt ?? "", rec.test, io, now]);
       }
 
       if (pending.length >= 500) {
