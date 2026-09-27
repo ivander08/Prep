@@ -223,6 +223,134 @@ export type RunOptions = {
   timeoutMs?: number;
 };
 
+// ---------------------------------------------------------------------------
+// Full test suites (imported from newfacade/LeetCodeDataset)
+// ---------------------------------------------------------------------------
+
+export type FullTestRow = {
+  slug: string;
+  entry_point: string;
+  prelude: string;
+  test_body: string;
+};
+
+export type FullRunResult = {
+  /** 'full' means a real test suite ran; 'examples' means we fell back to public cases. */
+  source: "full" | "examples";
+  passed: boolean;
+  assertions: number;
+  failedAssertion: string | null;
+  error: string | null;
+  stdout: string;
+  durationMs: number;
+};
+
+/**
+ * Run a user's solution against the imported full test suite.
+ *
+ * The dataset ships a `check(candidate)` function containing many
+ * `assert candidate(...) == expected` statements, plus a `prompt` block that carries the
+ * imports and a ListNode/TreeNode prelude some problems need. The prelude must be emitted
+ * BEFORE user code or those problems fail on an undefined name.
+ *
+ * `entry_point` is a dotted path (`Solution().shortestDistanceAfterQueries`), so it is
+ * evaluated rather than called directly — that is exactly how the dataset's own harness
+ * does it, and it binds the same way the executor already calls user code.
+ *
+ * Assertions are counted by running `check()` and catching AssertionError. There is no
+ * per-assertion granularity available from an assert-based suite, so a failure reports the
+ * first failing assertion rather than a pass/fail count. That is a real limitation of the
+ * format, not an oversight.
+ */
+export async function runFullTests(opts: {
+  code: string;
+  suite: FullTestRow;
+  timeoutMs?: number;
+}): Promise<FullRunResult> {
+  const timeoutMs = opts.timeoutMs ?? 15_000;
+  const started = Date.now();
+
+  const assertionCount = (opts.suite.test_body.match(/^\s*assert\s+candidate\(/gm) ?? []).length;
+
+  const harness = [
+    opts.suite.prelude,
+    opts.code,
+    opts.suite.test_body,
+    "",
+    "import traceback, json, sys",
+    "_entry = " + opts.suite.entry_point,
+    "try:",
+    "    check(_entry)",
+    "    print(json.dumps({'ok': True}))",
+    "except AssertionError as e:",
+    "    tb = traceback.format_exc().strip().split('\\n')",
+    "    line = next((l.strip() for l in reversed(tb) if l.strip().startswith('assert')), 'assertion failed')",
+    "    print(json.dumps({'ok': False, 'assertion': line[:400]}))",
+    "except Exception as e:",
+    "    print(json.dumps({'ok': False, 'error': type(e).__name__ + ': ' + str(e)[:300]}))",
+  ].join("\n");
+
+  const file = join(tmpdir(), `prep_full_${crypto.randomUUID()}.py`);
+  await writeFile(file, harness, "utf8");
+
+  const proc = Bun.spawn(["python", file], {
+    stdout: "pipe",
+    stderr: "pipe",
+    env: { ...process.env, PYTHONIOENCODING: "utf-8" },
+  });
+
+  const killer = setTimeout(() => proc.kill(), timeoutMs);
+  let stdout = "";
+  let stderr = "";
+  try {
+    [stdout, stderr] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+    ]);
+  } finally {
+    clearTimeout(killer);
+    await rm(file, { force: true });
+  }
+
+  const durationMs = Date.now() - started;
+  const line = stdout.trim().split("\n").filter(Boolean).pop();
+
+  if (!line) {
+    return {
+      source: "full",
+      passed: false,
+      assertions: assertionCount,
+      failedAssertion: null,
+      error: stderr.slice(0, 1200) || "no output (process killed or crashed)",
+      stdout: stdout.slice(0, 500),
+      durationMs,
+    };
+  }
+
+  try {
+    const parsed = JSON.parse(line) as { ok?: boolean; assertion?: string; error?: string };
+    return {
+      source: "full",
+      passed: Boolean(parsed.ok),
+      assertions: assertionCount,
+      failedAssertion: parsed.assertion ?? null,
+      error: parsed.error ?? null,
+      stdout: stdout.slice(0, 500),
+      durationMs,
+    };
+  } catch {
+    return {
+      source: "full",
+      passed: false,
+      assertions: assertionCount,
+      failedAssertion: null,
+      error: `harness emitted non-JSON: ${line.slice(0, 200)}`,
+      stdout: stdout.slice(0, 500),
+      durationMs,
+    };
+  }
+}
+
 /**
  * Execute Python against the cases in a subprocess. Never throws on user error.
  *

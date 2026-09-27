@@ -10,7 +10,8 @@
     "ingest": "bun run src/server/ingest.ts",
     "build:ui": "bunx vite build",
     "typecheck": "bunx tsc --noEmit",
-    "ingest:patterns": "bun run src/server/patterns.ts"
+    "ingest:patterns": "bun run src/server/patterns.ts",
+    "ingest:tests": "bun run src/server/fulltests.ts"
   },
   "dependencies": {
     "@codemirror/commands": "^6.11.1",

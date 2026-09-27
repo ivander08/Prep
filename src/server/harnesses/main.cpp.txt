@@ -1,0 +1,177 @@
+// C++ execution harness.
+//
+// A real file rather than a string template, for the same reason as the Java harness:
+// generating C++ from a TypeScript template means every backslash and quote must survive
+// several escaping layers, which produced uncompilable code more than once.
+//
+// Three placeholders are substituted at run time (see harnesses.ts). They are described
+// here rather than written literally, because a literal mention would itself be replaced.
+//
+// Headers MUST precede the user's code: a LeetCode C++ submission assumes the standard
+// library is already included and does not include anything itself.
+
+#include <bits/stdc++.h>
+using namespace std;
+
+__USER_CODE__
+
+namespace mini {
+
+static string b64decode(const string& in) {
+  static const string chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  int T[256];
+  for (int i = 0; i < 256; i++) T[i] = -1;
+  for (int i = 0; i < 64; i++) T[(unsigned char)chars[i]] = i;
+  string out;
+  int val = 0, bits = -8;
+  for (unsigned char c : in) {
+    if (T[c] == -1) continue;
+    val = (val << 6) + T[c];
+    bits += 6;
+    if (bits >= 0) { out.push_back(char((val >> bits) & 0xFF)); bits -= 8; }
+  }
+  return out;
+}
+
+struct Case { string args; string expected; };
+
+static string trim(const string& s) {
+  size_t a = s.find_first_not_of(" \t\n\r");
+  size_t b = s.find_last_not_of(" \t\n\r");
+  return a == string::npos ? "" : s.substr(a, b - a + 1);
+}
+
+// Split a bracketed list into top-level elements, respecting nesting and quotes.
+static vector<string> splitTop(const string& s) {
+  vector<string> out;
+  int depth = 0;
+  bool inStr = false;
+  size_t start = 0;
+  for (size_t i = 0; i < s.size(); i++) {
+    char c = s[i];
+    if (c == '"') inStr = !inStr;
+    else if (!inStr && (c == '[' || c == '{')) depth++;
+    else if (!inStr && (c == ']' || c == '}')) depth--;
+    else if (!inStr && c == ',' && depth == 0) { out.push_back(s.substr(start, i - start)); start = i + 1; }
+  }
+  if (start < s.size()) out.push_back(s.substr(start));
+  return out;
+}
+
+static int matchBracket(const string& s, int from) {
+  int d = 0;
+  for (int i = from; i < (int)s.size(); i++) {
+    if (s[i] == '[') d++;
+    else if (s[i] == ']') { if (--d == 0) return i + 1; }
+  }
+  return (int)s.size();
+}
+
+static string parseFn(const string& p) {
+  auto k = p.find("fn");
+  if (k == string::npos) return "";
+  auto c = p.find(':', k);
+  auto q1 = p.find('"', c);
+  auto q2 = p.find('"', q1 + 1);
+  return p.substr(q1 + 1, q2 - q1 - 1);
+}
+
+static vector<Case> parseCases(const string& p) {
+  vector<Case> out;
+  auto k = p.find("cases");
+  auto arr = p.find('[', k);
+  if (arr == string::npos) return out;
+  int i = (int)arr + 1, depth = 0, start = -1;
+  for (int j = i; j < (int)p.size(); j++) {
+    if (p[j] == '{') { if (depth == 0) start = j; depth++; }
+    else if (p[j] == '}') {
+      depth--;
+      if (depth == 0) {
+        string obj = p.substr(start, j - start + 1);
+        auto ai = obj.find("args");
+        auto aStart = obj.find('[', ai);
+        string args = obj.substr(aStart, matchBracket(obj, (int)aStart) - aStart);
+        auto ei = obj.find("expected");
+        auto eStart = obj.find(':', ei);
+        string exp = trim(obj.substr(eStart + 1));
+        while (!exp.empty() && (exp.back() == '}' || exp.back() == ' ')) exp.pop_back();
+        out.push_back({args, exp});
+      }
+    }
+  }
+  return out;
+}
+
+// Parse a flat-encoded scalar or nested list into a vector<int>.
+static vector<int> toIntVec(const string& s) {
+  string t = trim(s);
+  if (!t.empty() && t.front() == '[') t = t.substr(1, t.size() - 2);
+  vector<int> out;
+  for (auto& x : splitTop(t)) {
+    string v = trim(x);
+    if (!v.empty()) out.push_back(stoi(v));
+  }
+  return out;
+}
+
+static vector<vector<int>> toIntVec2(const string& s) {
+  string t = trim(s);
+  if (!t.empty() && t.front() == '[') t = t.substr(1, t.size() - 2);
+  vector<vector<int>> out;
+  for (auto& x : splitTop(t)) out.push_back(toIntVec(trim(x)));
+  return out;
+}
+
+static vector<string> toStrVec(const string& s) {
+  string t = trim(s);
+  if (!t.empty() && t.front() == '[') t = t.substr(1, t.size() - 2);
+  vector<string> out;
+  for (auto& x : splitTop(t)) {
+    string v = trim(x);
+    if (v.size() >= 2 && v.front() == '"') v = v.substr(1, v.size() - 2);
+    out.push_back(v);
+  }
+  return out;
+}
+
+static string renderInts(const vector<int>& v) {
+  string o = "[";
+  for (size_t i = 0; i < v.size(); i++) { if (i) o += ","; o += to_string(v[i]); }
+  return o + "]";
+}
+
+static string renderStrings(const vector<string>& v) {
+  string o = "[";
+  for (size_t i = 0; i < v.size(); i++) { if (i) o += ","; o += "\"" + v[i] + "\""; }
+  return o + "]";
+}
+
+static bool sameInts(vector<int> a, vector<int> b) {
+  sort(a.begin(), a.end());
+  sort(b.begin(), b.end());
+  return a == b;
+}
+
+}  // namespace mini
+
+
+int main() {
+  string P = mini::b64decode("__PAYLOAD_B64__");
+  string fn = mini::parseFn(P);
+  auto cases = mini::parseCases(P);
+  Solution sol;
+  int passed = 0;
+  cout << "{\"cases\":[";
+  for (size_t i = 0; i < cases.size(); i++) {
+    if (i) cout << ",";
+    cout << "{\"index\":" << i << ",\"args\":\"" << cases[i].args << "\",\"expected\":\"" << cases[i].expected << "\"";
+    try {
+__HARNESS_BODY__
+    } catch (const exception& e) {
+      cout << ",\"got\":null,\"pass\":false,\"error\":\"" << e.what() << "\"";
+    }
+    cout << "}";
+  }
+  cout << "],\"passed\":" << passed << ",\"total\":" << cases.size() << "}" << endl;
+  return 0;
+}

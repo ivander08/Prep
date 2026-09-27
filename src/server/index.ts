@@ -10,7 +10,9 @@
 import { Hono } from "hono";
 import { db, migrate, getMeta } from "./db.ts";
 import { fetchProblem, htmlToMarkdown } from "./leetcode.ts";
-import { buildTestCases, runPython } from "./executor.ts";
+import { buildTestCases, runFullTests, type FullTestRow } from "./executor.ts";
+import { runInLanguage } from "./runner.ts";
+import { LANGUAGES, detectAvailableLanguages } from "./languages.ts";
 import { dueQueue, nextUnsolved, listProgress, reviewCard, gradeAttempt } from "./srs.ts";
 import { tutorTurn, reviewAttempt } from "./tutor/index.ts";
 import { hintCeiling, ceilingReason } from "./tutor/policy.ts";
@@ -37,25 +39,6 @@ app.get("/api/lists", (c) => {
     catalog: db.query<{ n: number }, []>("SELECT COUNT(*) AS n FROM problems").get()?.n ?? 0,
     ingestedAt: getMeta("ingested_at"),
   });
-});
-
-app.get("/api/lists/:name/problems", (c) => {
-  const name = c.req.param("name");
-  const limit = Math.min(Number(c.req.query("limit") ?? 100), 500);
-
-  const rows = db
-    .query<
-      { qid: number; slug: string; title: string; difficulty: string; position: number; solved: number },
-      [string, number]
-    >(
-      `SELECT p.qid, p.slug, p.title, p.difficulty, l.position,
-              COALESCE((SELECT MAX(a.passed) FROM attempts a WHERE a.qid = p.qid), 0) AS solved
-       FROM lists l JOIN problems p ON p.qid = l.qid
-       WHERE l.name = ? ORDER BY l.position ASC LIMIT ?`,
-    )
-    .all(name, limit);
-
-  return c.json({ list: name, problems: rows });
 });
 
 /**
@@ -141,7 +124,7 @@ app.get("/api/problems/:slug", async (c) => {
 // ---------------------------------------------------------------------------
 
 app.post("/api/run", async (c) => {
-  const body = (await c.req.json()) as { slug: string; code: string; fnName?: string };
+  const body = (await c.req.json()) as { slug: string; code: string; fnName?: string; language?: string };
   const problem = db
     .query<{ meta_json: string | null; statement_md: string | null; examples: string | null }, [string]>(
       "SELECT meta_json, statement_md, examples FROM problems WHERE slug = ?",
@@ -149,6 +132,43 @@ app.post("/api/run", async (c) => {
     .get(body.slug);
 
   if (!problem?.statement_md) return c.json({ error: "problem not loaded — open it first" }, 400);
+
+  const language = body.language ?? "python3";
+
+  // Prefer the imported full test suite. It is a third-party proxy, not LeetCode's own
+  // tests, but it is 37-144 executable assertions instead of 2-3 public examples, so it
+  // catches far more.
+  //
+  // The dataset's suites are Python `assert` statements calling a Python entry point, so
+  // they only apply to Python submissions. For other languages the run falls back to the
+  // parsed example cases — which is a genuine limitation, not an oversight, and the
+  // disclaimer says so.
+  const suite =
+    language === "python3"
+      ? db
+          .query<FullTestRow, [string]>(
+            "SELECT slug, entry_point, prelude, test_body FROM full_tests WHERE slug = ?",
+          )
+          .get(body.slug)
+      : null;
+
+  if (suite) {
+    const full = await runFullTests({ code: body.code, suite });
+    return c.json({
+      source: full.source,
+      accepted: full.passed,
+      passed: full.passed ? full.assertions : 0,
+      total: full.assertions,
+      durationMs: full.durationMs,
+      cases: [],
+      failedAssertion: full.failedAssertion,
+      stderr: full.error ?? undefined,
+      parseWarning: null,
+      disclaimer:
+        `Graded against ${full.assertions} assertions from the community LeetCodeDataset ` +
+        `(Apache-2.0) — a much closer proxy than the public examples, but not LeetCode's own hidden tests.`,
+    });
+  }
 
   const parsed = buildTestCases({
     statementMd: problem.statement_md,
@@ -161,14 +181,28 @@ app.post("/api/run", async (c) => {
   }
 
   const fnName = body.fnName ?? parsed.meta.name;
-  const result = await runPython({ code: body.code, fnName, cases: parsed.cases });
+  const result = await runInLanguage({
+    language,
+    code: body.code,
+    fnName,
+    cases: parsed.cases,
+    meta: parsed.meta,
+  });
 
   return c.json({
     ...result,
+    source: "examples",
+    failedAssertion: null,
     parseWarning: parsed.parseWarning ?? null,
     // Surfaced deliberately: only exampleTestcases are public, so a green run here is not
     // a guarantee of passing LeetCode's hidden tests.
-    disclaimer: "Graded against public example cases only. LeetCode's hidden tests are not in the API.",
+    disclaimer:
+      language === "python3"
+        ? "Graded against the public example cases only — no full suite was found for this problem. " +
+          "LeetCode's hidden tests are not in the API."
+        : `Graded against the public example cases only. Full test suites are Python-only ` +
+          `(the dataset ships Python assertions), so ${language} submissions use the examples. ` +
+          `Switch to Python for the 80-assertion suite.`,
   });
 });
 
@@ -404,6 +438,102 @@ app.post("/api/mastery/recompute", (c) => {
 // Companies
 // ---------------------------------------------------------------------------
 
+/**
+ * Problems in a list, with everything the UI needs to sort, filter, and group:
+ * pattern, topics, difficulty, acceptance rate, solved state, and whether a full test
+ * suite exists. Doing this server-side keeps the client from re-fetching per filter.
+ */
+app.get("/api/lists/:name/problems", (c) => {
+  const name = c.req.param("name");
+  const limit = Math.min(Number(c.req.query("limit") ?? 500), 2000);
+
+  const rows = db
+    .query<
+      {
+        qid: number;
+        slug: string;
+        title: string;
+        difficulty: string;
+        position: number;
+        solved: number;
+        pattern: string | null;
+        topics: string | null;
+        acRate: number | null;
+        attempts: number;
+        hintsUsed: number | null;
+        hasFullTests: number;
+      },
+      [string, number]
+    >(
+      `SELECT p.qid, p.slug, p.title, p.difficulty, l.position, p.pattern, p.topics, p.ac_rate AS acRate,
+              COALESCE((SELECT MAX(a.passed) FROM attempts a WHERE a.qid = p.qid), 0) AS solved,
+              (SELECT COUNT(*) FROM attempts a WHERE a.qid = p.qid) AS attempts,
+              (SELECT MAX(a.hints_used) FROM attempts a WHERE a.qid = p.qid) AS hintsUsed,
+              CASE WHEN EXISTS (SELECT 1 FROM full_tests f WHERE f.slug = p.slug) THEN 1 ELSE 0 END AS hasFullTests
+       FROM lists l JOIN problems p ON p.qid = l.qid
+       WHERE l.name = ? ORDER BY l.position ASC LIMIT ?`,
+    )
+    .all(name, limit);
+
+  return c.json({ list: name, problems: rows });
+});
+
+/** Roadmap: every pattern with its problems, for the NeetCode-style view. */
+app.get("/api/roadmap", (c) => {
+  const listName = c.req.query("list") ?? "neetcode150";
+
+  const rows = db
+    .query<
+      {
+        pattern: string;
+        qid: number;
+        slug: string;
+        title: string;
+        difficulty: string;
+        position: number;
+        solved: number;
+      },
+      [string]
+    >(
+      `SELECT p.pattern, p.qid, p.slug, p.title, p.difficulty, l.position,
+              COALESCE((SELECT MAX(a.passed) FROM attempts a WHERE a.qid = p.qid), 0) AS solved
+       FROM lists l
+       JOIN problems p ON p.qid = l.qid
+       WHERE l.name = ? AND p.pattern IS NOT NULL
+       ORDER BY l.position ASC`,
+    )
+    .all(listName);
+
+  const byPattern = new Map<string, typeof rows>();
+  for (const r of rows) {
+    const bucket = byPattern.get(r.pattern) ?? [];
+    bucket.push(r);
+    byPattern.set(r.pattern, bucket);
+  }
+
+  const mastery = new Map(
+    db
+      .query<{ pattern: string; elo: number; attempts: number }, []>(
+        "SELECT pattern, elo, attempts FROM pattern_mastery",
+      )
+      .all()
+      .map((m) => [m.pattern, m]),
+  );
+
+  const patterns = [...byPattern.entries()].map(([pattern, problems]) => ({
+    pattern,
+    problems,
+    total: problems.length,
+    solved: problems.filter((p) => p.solved === 1).length,
+    elo: mastery.get(pattern)?.elo ?? null,
+  }));
+
+  // Patterns with no attempts sort first so the roadmap opens on what needs work.
+  patterns.sort((a, b) => (a.elo ?? 0) - (b.elo ?? 0));
+
+  return c.json({ list: listName, patterns });
+});
+
 app.get("/api/companies", (c) => {
   const rows = db
     .query<{ company: string; n: number }, []>(
@@ -441,6 +571,13 @@ app.get("/api/companies/:name/problems", (c) => {
     .all(name, limit);
 
   return c.json({ company: name, problems: rows });
+});
+
+app.get("/api/languages", async (c) => {
+  const available = await detectAvailableLanguages();
+  return c.json({
+    languages: LANGUAGES.map((l) => ({ id: l.id, label: l.label, langSlug: l.langSlug, available: available[l.id] ?? false })),
+  });
 });
 
 app.get("/api/health", (c) =>

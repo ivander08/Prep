@@ -1,0 +1,196 @@
+// Java execution harness.
+//
+// Kept as a real file rather than a string template inside runner.ts. Generating Java from
+// a TypeScript template meant every backslash and quote had to survive three escaping
+// layers (source, template, Java), and it repeatedly produced uncompilable code. A plain
+// file has nothing to escape and can be read by a human.
+//
+// Three placeholders are substituted at run time (see harnesses.ts): the user's solution,
+// a base64 blob of the case data, and the method name. They are described here rather than
+// written literally, because a literal mention would itself be substituted — that injected
+// user code into this comment block and broke the compile.
+//
+// Case encoding (one line per case, no JSON parsing needed):
+//   <arg1> U+001F <arg2> U+001F ... U+001E <expected>
+// Nested arrays are comma-separated inside [ ].
+
+import java.util.*;
+
+__USER_CODE__
+
+public class Main {
+  static final String FN = "__FN__";
+  static final String CASES = new String(Base64.getDecoder().decode("__PAYLOAD_B64__"));
+
+  public static void main(String[] a) throws Exception {
+    Solution s = new Solution();
+    java.lang.reflect.Method m = null;
+    for (java.lang.reflect.Method cand : Solution.class.getMethods()) {
+      if (cand.getName().equals(FN)) { m = cand; break; }
+    }
+    if (m == null) {
+      System.out.println("{\"fatal\":\"class Solution has no method \" + FN}");
+      return;
+    }
+
+    StringBuilder sb = new StringBuilder("{\"cases\":[");
+    int passed = 0, total = 0;
+    for (String line : CASES.split("\n")) {
+      if (line.isEmpty()) continue;
+      int sep = line.indexOf((char) 30);
+      if (sep < 0) continue;
+      String argsPart = line.substring(0, sep);
+      String expPart = line.substring(sep + 1);
+      String[] argStrs = argsPart.split(String.valueOf((char) 31), -1);
+      Class<?>[] types = m.getParameterTypes();
+
+      if (total > 0) sb.append(",");
+      sb.append("{\"index\":").append(total)
+        .append(",\"args\":\"").append(esc(argsPart)).append("\"")
+        .append(",\"expected\":\"").append(esc(expPart)).append("\"");
+
+      try {
+        Object[] args = new Object[argStrs.length];
+        for (int i = 0; i < argStrs.length; i++) args[i] = coerce(argStrs[i], types[i]);
+        Object got = m.invoke(s, args);
+        Object expected = coerce(expPart, m.getReturnType());
+        boolean ok = same(got, expected);
+        if (ok) passed++;
+        sb.append(",\"got\":\"").append(esc(render(got))).append("\",\"pass\":").append(ok);
+      } catch (Throwable e) {
+        Throwable c = e.getCause() != null ? e.getCause() : e;
+        sb.append(",\"got\":null,\"pass\":false,\"error\":\"")
+          .append(esc(c.getClass().getSimpleName() + ": " + c.getMessage())).append("\"");
+      }
+      sb.append("}");
+      total++;
+    }
+    sb.append("],\"passed\":").append(passed).append(",\"total\":").append(total).append("}");
+    System.out.println(sb);
+  }
+
+  /**
+   * Escape a value for embedding in a JSON string.
+   *
+   * Uses numeric char codes rather than char literals: a backslash literal must survive
+   * several escaping layers and did not, producing Java that would not compile. Numbers
+   * have nothing to escape. Control characters are replaced because the case encoding uses
+   * U+001F as a separator and a raw control byte is invalid inside JSON.
+   */
+  static String esc(String s) {
+    if (s == null) return "";
+    StringBuilder out = new StringBuilder(s.length() + 8);
+    for (int i = 0; i < s.length(); i++) {
+      int ci = s.charAt(i);
+      if (ci == 92) out.append((char) 92).append((char) 92);
+      else if (ci == 34) out.append((char) 92).append((char) 34);
+      else if (ci < 32) out.append((char) 32);
+      else out.append((char) ci);
+    }
+    return out.toString();
+  }
+
+  /** Render a returned value back to the flat encoding, for display and comparison. */
+  static String render(Object v) {
+    if (v == null) return "null";
+    if (v instanceof int[]) return Arrays.toString((int[]) v).replace(" ", "");
+    if (v instanceof long[]) return Arrays.toString((long[]) v).replace(" ", "");
+    if (v instanceof double[]) return Arrays.toString((double[]) v).replace(" ", "");
+    if (v instanceof boolean[]) {
+      boolean[] b = (boolean[]) v;
+      StringBuilder sb = new StringBuilder("[");
+      for (int i = 0; i < b.length; i++) { if (i > 0) sb.append(","); sb.append(b[i]); }
+      return sb.append("]").toString();
+    }
+    if (v instanceof Object[]) return Arrays.deepToString((Object[]) v).replace(" ", "");
+    if (v instanceof List) return v.toString().replace(" ", "");
+    return String.valueOf(v);
+  }
+
+  static boolean same(Object got, Object expected) {
+    if (got == null || expected == null) return got == expected;
+    if (got instanceof int[] && expected instanceof int[]) {
+      int[] g = ((int[]) got).clone(), e = ((int[]) expected).clone();
+      Arrays.sort(g); Arrays.sort(e);
+      return Arrays.equals(g, e);
+    }
+    if (got instanceof double[] && expected instanceof double[]) return Arrays.equals((double[]) got, (double[]) expected);
+    if (got instanceof Object[] && expected instanceof Object[]) return Arrays.deepEquals((Object[]) got, (Object[]) expected);
+    return String.valueOf(got).replace(" ", "").equals(String.valueOf(expected).replace(" ", ""));
+  }
+
+  /** Parse one flat-encoded argument into the method's declared parameter type. */
+  static Object coerce(String raw, Class<?> t) {
+    String v = raw.trim();
+    if (t == int.class || t == Integer.class) return Integer.parseInt(v);
+    if (t == long.class || t == Long.class) return Long.parseLong(v);
+    if (t == double.class || t == Double.class) return Double.parseDouble(v);
+    if (t == boolean.class || t == Boolean.class) return Boolean.parseBoolean(v);
+    if (t == char.class) return unquote(v).charAt(0);
+    if (t == String.class) return unquote(v);
+    if (t == int[].class) {
+      String[] p = elements(v); int[] o = new int[p.length];
+      for (int i = 0; i < p.length; i++) o[i] = Integer.parseInt(p[i].trim());
+      return o;
+    }
+    if (t == double[].class) {
+      String[] p = elements(v); double[] o = new double[p.length];
+      for (int i = 0; i < p.length; i++) o[i] = Double.parseDouble(p[i].trim());
+      return o;
+    }
+    if (t == String[].class) {
+      String[] p = elements(v); String[] o = new String[p.length];
+      for (int i = 0; i < p.length; i++) o[i] = unquote(p[i].trim());
+      return o;
+    }
+    if (t == boolean[].class) {
+      String[] p = elements(v); boolean[] o = new boolean[p.length];
+      for (int i = 0; i < p.length; i++) o[i] = Boolean.parseBoolean(p[i].trim());
+      return o;
+    }
+    return nested(v);
+  }
+
+  static String unquote(String s) {
+    s = s.trim();
+    if (s.length() >= 2 && s.charAt(0) == 34 && s.charAt(s.length() - 1) == 34) return s.substring(1, s.length() - 1);
+    return s;
+  }
+
+  /** Split a bracketed list into top-level elements, respecting nesting. */
+  static String[] elements(String s) {
+    s = s.trim();
+    if (s.startsWith("[")) s = s.substring(1, s.length() - 1);
+    if (s.trim().isEmpty()) return new String[0];
+    List<String> out = new ArrayList<>();
+    int depth = 0; boolean inStr = false; StringBuilder cur = new StringBuilder();
+    for (int i = 0; i < s.length(); i++) {
+      char ch = s.charAt(i);
+      if (ch == 34) { inStr = !inStr; cur.append(ch); }
+      else if (!inStr && (ch == '[' || ch == '{')) { depth++; cur.append(ch); }
+      else if (!inStr && (ch == ']' || ch == '}')) { depth--; cur.append(ch); }
+      else if (!inStr && ch == ',' && depth == 0) { out.add(cur.toString()); cur.setLength(0); }
+      else cur.append(ch);
+    }
+    if (cur.length() > 0) out.add(cur.toString());
+    return out.toArray(new String[0]);
+  }
+
+  /** Nested list, e.g. [[1,2],[3]] becomes List<List<Integer>>. */
+  static Object nested(String s) {
+    String v = s.trim();
+    if (!v.startsWith("[")) {
+      if (v.startsWith("\"")) return unquote(v);
+      if (v.equals("true") || v.equals("false")) return Boolean.parseBoolean(v);
+      if (v.equals("null")) return null;
+      try { return Integer.parseInt(v); } catch (NumberFormatException ignored) { }
+      try { return Double.parseDouble(v); } catch (NumberFormatException ignored) { }
+      return v;
+    }
+    String[] parts = elements(v);
+    List<Object> out = new ArrayList<>();
+    for (String p : parts) out.add(nested(p));
+    return out;
+  }
+}
+

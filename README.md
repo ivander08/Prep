@@ -30,7 +30,7 @@ So the two design rules this project holds to:
 
 ## Status
 
-Phases 1-3 of 5 are complete and verified.
+Phases 1-3 of 5 are complete and verified, plus the list/roadmap features.
 
 | | |
 |---|---|
@@ -43,6 +43,10 @@ Phases 1-3 of 5 are complete and verified.
 | Mastery | per-pattern Elo, weakness ranking, hint-dependence report |
 | Companies | 38 companies, 11,315 associations, frequency-ordered |
 | Models | 89 models with live Rupiah pricing, per-role selection |
+| Test suites | **2,869 problems with 37-144 executable assertions each** |
+| Languages | Python, JavaScript, Java, C++, Go — all verified locally |
+| Roadmap | NeetCode-style pattern blocks, weakest-first |
+| Lists | sort, filter, and group by technique / difficulty / status |
 | System design | not yet (Phase 4) |
 
 ## The tutor
@@ -170,11 +174,54 @@ Also: LeetCode's `__type` introspection is disabled, `companyTags` returns null
 unauthenticated, and the SQL study plan's slug is `top-sql-50` — `sql-50` returns `null`
 silently rather than erroring.
 
+## Test suites
+
+LeetCode's API exposes only `exampleTestcases` — the 2-3 public examples — so a solution
+that passes locally can still fail their hidden tests. `newfacade/LeetCodeDataset`
+(Apache-2.0) closes most of that gap: **2,869 problems with 37-144 executable assertions
+each**, imported in 11 s and joined to the catalog at 100% by slug.
+
+```bash
+bun run ingest:tests
+```
+
+**Two honest caveats, both surfaced in the UI:**
+
+1. **They are third-party tests, not LeetCode's.** A far better proxy than the public
+   examples, but not authoritative.
+2. **They are sometimes stricter than the problem statement.** Measured: Two Sum's suite
+   includes `nums = [-1,-2,-3,-4], target = -8 → None`, but the statement promises *"exactly
+   one solution"*, so that case is outside the stated contract. A correct brute force fails
+   it. The UI shows the exact failing assertion so you can judge rather than guess.
+
+Full suites are **Python-only** — the dataset ships Python `assert` statements calling a
+Python entry point. Other languages fall back to the example cases, and the disclaimer says so.
+
+## Languages
+
+Python, JavaScript, Java, C++, and Go are supported and verified against a known-good and a
+known-bad solution each. Availability is detected at runtime, so a language without a
+runtime shows as unavailable rather than failing at submit.
+
+The binding rule differs per language, and getting it wrong fails *every* submission:
+
+| language | LeetCode stub | how it is called |
+|---|---|---|
+| Python | `class Solution:` + method taking `self` | instantiate, bind |
+| Java | `class Solution { public ... }` | instantiate, reflect |
+| C++ | `class Solution { public: ... }` | instantiate |
+| JavaScript | `var twoSum = function(...)` | bare function |
+| Go | `func twoSum(...)` | bare function, reflect |
+
+Java and C++ harnesses are real files under `src/server/harnesses/`. Generating them from
+string templates meant every backslash had to survive three escaping layers, and it
+repeatedly produced uncompilable code. C++ additionally needs type-directed codegen, since a
+statically typed language cannot build a generic call site.
+
 ## Known limitations
 
-**The local judge is approximately as strict as LeetCode's, not identical.** Only
-`exampleTestcases` are public; LeetCode's hidden tests are not in the API. A green run here
-does not guarantee a green run there, and the UI says so on every result rather than
+**The local judge is approximately as strict as LeetCode's, not identical.** A green run
+here does not guarantee a green run there, and the UI says so on every result rather than
 letting you assume otherwise.
 
 ## Legal
@@ -189,5 +236,6 @@ a hosted product and why the repo ships no problem content.
 - **Phase 1** — catalog, executor, SRS, review queue ✅
 - **Phase 2** — the tutor: deterministic hint ceiling, code-reveal detector, validate/repair ✅
 - **Phase 3** — per-pattern mastery, weakness view, company tags, model picker ✅
+- **Phase 3.5** — full test suites, multi-language execution, roadmap, sort/filter/group ✅
 - **Phase 4** — system design: 45-min mock, rubric grading
 - **Phase 5** — stack-specific and behavioral tracks

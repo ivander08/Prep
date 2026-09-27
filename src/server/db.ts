@@ -2,7 +2,12 @@ import { Database } from "bun:sqlite";
 import { readdirSync, readFileSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 
-const DB_PATH = join(import.meta.dir, "../../data/prep.db");
+/**
+ * The database path is overridable via PREP_DB_PATH so tests never touch the real one.
+ * Tests that write to the live database are a bug: they corrupt the user's progress and
+ * make their counts meaningless.
+ */
+const DB_PATH = process.env.PREP_DB_PATH ?? join(import.meta.dir, "../../data/prep.db");
 const MIGRATIONS_DIR = join(import.meta.dir, "migrations");
 
 mkdirSync(dirname(DB_PATH), { recursive: true });

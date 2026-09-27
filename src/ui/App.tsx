@@ -4,6 +4,8 @@ import { TutorPanel } from "./components/TutorPanel";
 import { ModelPicker } from "./components/ModelPicker";
 import { MasteryView } from "./components/MasteryView";
 import { CompaniesView } from "./components/CompaniesView";
+import { RoadmapView } from "./components/RoadmapView";
+import { ProblemList } from "./components/ProblemList";
 import {
   api,
   GRADE_LABEL,
@@ -21,14 +23,13 @@ const STARTERS: Record<string, string> = {
   python3: "class Solution:\n    def solve(self):\n        pass\n",
 };
 
-type View = "overview" | "list" | "review" | "weakness" | "companies" | "models";
+type View = "overview" | "list" | "roadmap" | "review" | "weakness" | "companies" | "models";
 
 export function App() {
   const [view, setView] = useState<View>("overview");
   const [lists, setLists] = useState<ListSummary[]>([]);
   const [catalog, setCatalog] = useState(0);
   const [activeList, setActiveList] = useState<string>("neetcode150");
-  const [problems, setProblems] = useState<ProblemRow[]>([]);
   const [due, setDue] = useState<DueItem[]>([]);
   const [openSlug, setOpenSlug] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -38,15 +39,6 @@ export function App() {
       const r = await api<{ lists: ListSummary[]; catalog: number }>("/api/lists");
       setLists(r.lists);
       setCatalog(r.catalog);
-    } catch (e) {
-      setError(String(e));
-    }
-  }, []);
-
-  const loadList = useCallback(async (name: string) => {
-    try {
-      const r = await api<{ problems: ProblemRow[] }>(`/api/lists/${name}/problems?limit=200`);
-      setProblems(r.problems);
     } catch (e) {
       setError(String(e));
     }
@@ -66,15 +58,10 @@ export function App() {
     void loadDue();
   }, [refreshLists, loadDue]);
 
-  useEffect(() => {
-    if (view === "list") void loadList(activeList);
-  }, [view, activeList, loadList]);
-
   const onSolved = useCallback(() => {
     void refreshLists();
     void loadDue();
-    if (view === "list") void loadList(activeList);
-  }, [refreshLists, loadDue, loadList, view, activeList]);
+  }, [refreshLists, loadDue]);
 
   if (openSlug) {
     return (
@@ -100,7 +87,8 @@ export function App() {
             [
               ["overview", "Overview"],
               ["review", "Review"],
-              ["list", "Practice"],
+              ["roadmap", "Roadmap"],
+              ["list", "Problems"],
               ["weakness", "Weakness"],
               ["companies", "Companies"],
               ["models", "Models"],
@@ -147,9 +135,9 @@ export function App() {
           <Review due={due} onOpen={setOpenSlug} onRefresh={loadDue} />
         ) : null}
 
-        {view === "list" ? (
-          <ListView name={activeList} problems={problems} onOpen={setOpenSlug} />
-        ) : null}
+        {view === "list" ? <ProblemList listName={activeList} onOpen={setOpenSlug} /> : null}
+
+        {view === "roadmap" ? <RoadmapView onOpen={setOpenSlug} /> : null}
 
         {view === "weakness" ? <MasteryView /> : null}
 
@@ -233,33 +221,6 @@ function Overview({
   );
 }
 
-function ListView({
-  name,
-  problems,
-  onOpen,
-}: {
-  name: string;
-  problems: ProblemRow[];
-  onOpen: (slug: string) => void;
-}) {
-  return (
-    <>
-      <h1>{name}</h1>
-      <p className="muted">Click a problem to open it.</p>
-      <div style={{ marginTop: 14 }}>
-        {problems.map((p) => (
-          <div key={p.qid} className={`problem-row${p.solved ? " solved" : ""}`} onClick={() => onOpen(p.slug)}>
-            <span className="qid">{p.qid}</span>
-            <span className="title">{p.title}</span>
-            <span className={`badge ${p.difficulty}`}>{p.difficulty}</span>
-          </div>
-        ))}
-        {problems.length === 0 ? <div className="empty">No problems loaded for this list.</div> : null}
-      </div>
-    </>
-  );
-}
-
 function Review({ due, onOpen, onRefresh }: { due: DueItem[]; onOpen: (s: string) => void; onRefresh: () => void }) {
   return (
     <>
@@ -299,6 +260,8 @@ function ProblemView({ slug, onBack }: { slug: string; onBack: () => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hintsUsed, setHintsUsed] = useState(0);
+  const [language, setLanguage] = useState("python3");
+  const [languages, setLanguages] = useState<Array<{ id: string; label: string; langSlug: string; available: boolean }>>([]);
   const startedAt = useRef<number>(Date.now());
 
   useEffect(() => {
@@ -308,6 +271,12 @@ function ProblemView({ slug, onBack }: { slug: string; onBack: () => void }) {
     setAttempt(null);
     setHintsUsed(0);
     startedAt.current = Date.now();
+
+    api<{ languages: Array<{ id: string; label: string; langSlug: string; available: boolean }> }>(
+      "/api/languages",
+    )
+      .then((r) => !cancelled && setLanguages(r.languages))
+      .catch(() => {});
 
     api<ProblemDetail>(`/api/problems/${slug}`)
       .then((p) => {
@@ -326,6 +295,17 @@ function ProblemView({ slug, onBack }: { slug: string; onBack: () => void }) {
     };
   }, [slug]);
 
+  const switchLanguage = useCallback(
+    (id: string) => {
+      setLanguage(id);
+      const meta = languages.find((l) => l.id === id);
+      const snippet = meta ? problem?.snippets.find((sn) => sn.langSlug === meta.langSlug)?.code : null;
+      if (snippet) setCode(snippet);
+      setRun(null);
+    },
+    [languages, problem],
+  );
+
   const onRun = useCallback(async () => {
     if (!problem || busy) return;
     setBusy(true);
@@ -333,7 +313,7 @@ function ProblemView({ slug, onBack }: { slug: string; onBack: () => void }) {
     try {
       const r = await api<RunResponse>("/api/run", {
         method: "POST",
-        body: JSON.stringify({ slug: problem.slug, code, fnName: problem.meta.name }),
+        body: JSON.stringify({ slug: problem.slug, code, fnName: problem.meta.name, language }),
       });
       setRun(r);
 
@@ -356,7 +336,7 @@ function ProblemView({ slug, onBack }: { slug: string; onBack: () => void }) {
     } finally {
       setBusy(false);
     }
-  }, [problem, code, busy, hintsUsed]);
+  }, [problem, code, busy, hintsUsed, language]);
 
   if (error) {
     return (
@@ -426,6 +406,19 @@ function ProblemView({ slug, onBack }: { slug: string; onBack: () => void }) {
               <button className="primary" onClick={() => void onRun()} disabled={busy}>
                 {busy ? "Running…" : "Run tests"}
               </button>
+              <select
+                className="lang-select"
+                value={language}
+                onChange={(e) => switchLanguage(e.target.value)}
+                title="Language"
+              >
+                {languages.map((l) => (
+                  <option key={l.id} value={l.id} disabled={!l.available}>
+                    {l.label}
+                    {l.available ? "" : " (not installed)"}
+                  </option>
+                ))}
+              </select>
               <span className="muted small">Ctrl+Enter</span>
               {hintsUsed > 0 ? <span className="muted small">hints opened: {hintsUsed}</span> : null}
             </div>
