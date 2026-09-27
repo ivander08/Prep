@@ -96,7 +96,7 @@ export function CompaniesView({ onOpen }: { onOpen: (slug: string) => void }) {
                 onClick={() => void loadProblems(c.company)}
               >
                 <span>{c.company}</span>
-                <span className="muted small">{c.n}</span>
+                <span className="n">{c.n}</span>
               </button>
             ))}
           </div>

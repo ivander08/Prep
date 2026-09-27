@@ -89,8 +89,6 @@ export function ModelPicker() {
   if (error) return <div className="notice bad">{error}</div>;
   if (!data) return <div className="spinner">Loading model catalog…</div>;
 
-  const hasKey = true; // the API reports 502 if the key is missing, surfaced as `error`
-
   return (
     <>
       <h1>Models</h1>
@@ -99,8 +97,6 @@ export function ModelPicker() {
         1M tokens. A selection is a preference — if the chosen model is unavailable, the request falls
         back rather than failing.
       </p>
-
-      {!hasKey ? null : null}
 
       {data.availableRoles.map((role) => {
         const current = data.roles[role] ?? null;

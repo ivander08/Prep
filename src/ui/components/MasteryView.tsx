@@ -30,12 +30,43 @@ type Stats = {
 
 type MasteryResponse = { patterns: MasteryRow[]; hintDependence: HintRow[]; stats: Stats };
 
-/** Elo rendered as a band, since the number itself means little without a reference. */
+/** The measurement span the graticule covers. */
+const SCALE_MIN = 1000;
+const SCALE_MAX = 1600;
+
 function band(elo: number): { label: string; className: string } {
   if (elo < 1150) return { label: "weak", className: "weak" };
   if (elo < 1300) return { label: "developing", className: "developing" };
   if (elo < 1450) return { label: "solid", className: "solid" };
   return { label: "strong", className: "strong" };
+}
+
+/**
+ * The mastery graticule — the one element this interface should be remembered by.
+ *
+ * A bare Elo number means nothing without a reference. Plotting it as a position on a
+ * fixed 1000-1600 span makes "weak" and "strong" legible at a glance, and the tick marks
+ * give the eye something to compare against down the column. Instruments solve this
+ * problem with a scale; so does this.
+ */
+function Graticule({ elo }: { elo: number }) {
+  const clamped = Math.max(SCALE_MIN, Math.min(SCALE_MAX, elo));
+  const pct = ((clamped - SCALE_MIN) / (SCALE_MAX - SCALE_MIN)) * 100;
+  const b = band(elo);
+
+  return (
+    <div className="scale-wrap">
+      <div className="scale">
+        <span className="floor" />
+        <span className={`mark ${b.className}`} style={{ left: `${pct}%` }} />
+      </div>
+      <div className="scale-legend">
+        <span>1000</span>
+        <span>1300</span>
+        <span>1600</span>
+      </div>
+    </div>
+  );
 }
 
 /**
@@ -75,22 +106,29 @@ export function MasteryView() {
         hints you used, and whether a re-solve failed. A pattern you have never attempted does not appear.
       </p>
 
-      <div className="stat-grid" style={{ marginTop: 16 }}>
-        <div className="stat">
-          <div className="n">{stats.solvedDistinct}</div>
-          <div className="k">problems solved</div>
+      <div className="readout">
+        <div className="cell">
+          <span className="k">Solved</span>
+          <span className="v">{stats.solvedDistinct}</span>
         </div>
-        <div className="stat">
-          <div className="n">{stats.unaided}</div>
-          <div className="k">unaided solves</div>
+        <div className="cell">
+          <span className="k">Unaided</span>
+          <span className="v pass">{stats.unaided}</span>
         </div>
-        <div className="stat">
-          <div className="n">{stats.withHints}</div>
-          <div className="k">attempts with hints</div>
+        <div className="cell">
+          <span className="k">With hints</span>
+          <span className="v">{stats.withHints}</span>
         </div>
-        <div className="stat">
-          <div className="n">{stats.patternsTouched}</div>
-          <div className="k">patterns touched</div>
+        <div className="cell">
+          <span className="k">Patterns</span>
+          <span className="v">{stats.patternsTouched}</span>
+        </div>
+        <div className="cell">
+          <span className="k">Tutor spend</span>
+          <span className="v signal">
+            {stats.totalTutorCost.toFixed(2)}
+            <span className="unit">IDR</span>
+          </span>
         </div>
       </div>
 
@@ -104,8 +142,8 @@ export function MasteryView() {
           <div className="table">
             <div className="tr th mastery">
               <span>pattern</span>
+              <span>strength</span>
               <span>elo</span>
-              <span>state</span>
               <span>solved</span>
               <span>hint rate</span>
               <span>lapses</span>
@@ -114,11 +152,12 @@ export function MasteryView() {
               const b = band(p.elo);
               return (
                 <div key={p.pattern} className="tr mastery">
-                  <span>{p.pattern}</span>
-                  <span className="mono">{Math.round(p.elo)}</span>
                   <span>
-                    <span className={`pill ${b.className}`}>{b.label}</span>
+                    {p.pattern}
+                    <span className={`state-tag ${b.className}`}> · {b.label}</span>
                   </span>
+                  <Graticule elo={p.elo} />
+                  <span className="mono">{Math.round(p.elo)}</span>
                   <span className="mono">
                     {p.solved}/{p.attempts}
                   </span>

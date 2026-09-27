@@ -96,51 +96,44 @@ export function App() {
         </div>
 
         <nav className="nav">
-          <button className={view === "overview" ? "active" : ""} onClick={() => setView("overview")}>
-            Overview
-          </button>
-          <button className={view === "review" ? "active" : ""} onClick={() => setView("review")}>
-            Review {due.length > 0 ? `(${due.length})` : ""}
-          </button>
-          <button className={view === "list" ? "active" : ""} onClick={() => setView("list")}>
-            Practice
-          </button>
-          <button className={view === "weakness" ? "active" : ""} onClick={() => setView("weakness")}>
-            Weakness
-          </button>
-          <button className={view === "companies" ? "active" : ""} onClick={() => setView("companies")}>
-            Companies
-          </button>
-          <button className={view === "models" ? "active" : ""} onClick={() => setView("models")}>
-            Models
-          </button>
+          {(
+            [
+              ["overview", "Overview"],
+              ["review", "Review"],
+              ["list", "Practice"],
+              ["weakness", "Weakness"],
+              ["companies", "Companies"],
+              ["models", "Models"],
+            ] as const
+          ).map(([id, label]) => (
+            <button key={id} className={view === id ? "active" : ""} onClick={() => setView(id)}>
+              <span>{label}</span>
+              {id === "review" && due.length > 0 ? <span className="count">{due.length}</span> : null}
+            </button>
+          ))}
         </nav>
 
-        <div>
-          <h2>Lists</h2>
-          <nav className="nav">
-            {LISTS.map((l) => {
-              const s = lists.find((x) => x.name === l);
-              return (
-                <button
-                  key={l}
-                  className={view === "list" && activeList === l ? "active" : ""}
-                  onClick={() => {
-                    setActiveList(l);
-                    setView("list");
-                  }}
-                >
-                  {l}
-                  {s ? <span className="muted small"> {s.solved}/{s.total}</span> : null}
-                </button>
-              );
-            })}
-          </nav>
-        </div>
+        <div className="side-label">Lists</div>
+        <nav className="nav">
+          {LISTS.map((l) => {
+            const s = lists.find((x) => x.name === l);
+            return (
+              <button
+                key={l}
+                className={view === "list" && activeList === l ? "active" : ""}
+                onClick={() => {
+                  setActiveList(l);
+                  setView("list");
+                }}
+              >
+                <span>{l}</span>
+                {s ? <span className="count">{s.solved}/{s.total}</span> : null}
+              </button>
+            );
+          })}
+        </nav>
 
-        <div className="muted small" style={{ marginTop: "auto" }}>
-          {catalog.toLocaleString()} problems cached locally
-        </div>
+        <div className="sidebar-foot">{catalog.toLocaleString()} problems local</div>
       </aside>
 
       <main className="main">
@@ -186,26 +179,28 @@ function Overview({
       <h1>Overview</h1>
       <p className="muted">Local-first interview prep. Nothing leaves this machine except your AI calls.</p>
 
-      <div className="stat-grid" style={{ marginTop: 18 }}>
-        <div className="stat">
-          <div className="n">{catalog.toLocaleString()}</div>
-          <div className="k">problems cached</div>
+      <div className="readout">
+        <div className="cell">
+          <span className="k">Catalog</span>
+          <span className="v">{catalog.toLocaleString()}</span>
         </div>
-        <div className="stat">
-          <div className="n">{totalSolved}</div>
-          <div className="k">solved across lists</div>
+        <div className="cell">
+          <span className="k">Solved</span>
+          <span className="v">{totalSolved}</span>
         </div>
-        <div className="stat">
-          <div className="n">{due.length}</div>
-          <div className="k">due for review</div>
+        <div className="cell">
+          <span className="k">Due now</span>
+          <span className={`v ${due.length > 0 ? "signal" : ""}`}>{due.length}</span>
         </div>
       </div>
 
       <h2>Due now</h2>
       {due.length === 0 ? (
-        <div className="card muted">Nothing due. Solve something and it will come back on a schedule.</div>
+        <div className="empty">
+          Nothing due. Solve something and it returns on a schedule — 4 days, then 34, then 89.
+        </div>
       ) : (
-        <div>
+        <div className="table">
           {due.slice(0, 8).map((d) => (
             <div key={d.qid} className="problem-row" onClick={() => onOpen(d.slug)}>
               <span className="qid">{d.qid}</span>
@@ -216,16 +211,20 @@ function Overview({
         </div>
       )}
 
-      <h2>Progress</h2>
-      <div className="card">
+      <h2>List progress</h2>
+      <div className="table">
         {lists.map((l) => {
-          const pct = l.total > 0 ? Math.round((l.solved / l.total) * 100) : 0;
+          const pct = l.total > 0 ? (l.solved / l.total) * 100 : 0;
           return (
-            <div key={l.name} className="spread" style={{ padding: "5px 0" }}>
-              <span>{l.name}</span>
-              <span className="muted small">
-                {l.solved}/{l.total} ({pct}%)
+            <div key={l.name} className="progress-row">
+              <span className="name">{l.name}</span>
+              <span className="track">
+                <span className="fill" style={{ width: `${pct}%` }} />
               </span>
+              <span className="mono tally">
+                {l.solved}/{l.total}
+              </span>
+              <span className="mono pct">{pct.toFixed(0)}%</span>
             </div>
           );
         })}
