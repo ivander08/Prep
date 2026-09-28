@@ -14,11 +14,14 @@ import { buildTestCases, runFullTests, type FullTestRow, type ProblemMeta } from
 import { hasStructuredSuite, runSuiteAnyLanguage } from "./grading.ts";
 import { runInLanguage } from "./runner.ts";
 import { LANGUAGES, detectAvailableLanguages } from "./languages.ts";
-import { dueQueue, nextUnsolved, listProgress, reviewCard, gradeAttempt, GRADE_LIMIT_SECONDS } from "./srs.ts";
+import { dueQueue, duePatterns, nextUnsolved, listProgress, reviewCard, reviewPattern, reviewDesign, gradeAttempt, GRADE_LIMIT_SECONDS } from "./srs.ts";
+import type { Grade } from "ts-fsrs";
 import { tutorTurn, reviewAttempt } from "./tutor/index.ts";
 import { hintCeiling, ceilingReason } from "./tutor/policy.ts";
 import { fetchCatalog, allRoleModels, setRoleModel, ROLE_LABEL, ROLES } from "./models.ts";
 import { masteryReport, hintDependence, studyStats, recomputeMastery } from "./mastery.ts";
+import { listDesignPrompts, getDesignPrompt } from "./design/catalog.ts";
+import { designTurn, gradeDesign, latestOpenSession, loadSession, saveDraft, startDesignSession } from "./design/index.ts";
 import {
   conceptModules,
   getConcept,
@@ -29,12 +32,23 @@ import {
   LANG_LABEL,
   LANGS,
 } from "./concepts.ts";
+import {
+  componentModules,
+  getComponent,
+  listComponents,
+  recordComponent,
+  runComponent,
+  seedComponents,
+  LANG_LABEL as COMPONENT_LANG_LABEL,
+  LANGS as COMPONENT_LANGS,
+} from "./components.ts";
 
 migrate();
 
 // The concept catalogue is code, so it is seeded on every boot rather than migrated: an edit
 // to the prose or an exemplar then takes effect on reload instead of needing a new migration.
 seedConcepts();
+seedComponents();
 
 const app = new Hono();
 
@@ -70,6 +84,7 @@ app.get("/api/problems/:slug", async (c) => {
         title: string;
         difficulty: string;
         topics: string | null;
+        pattern: string | null;
         statement_md: string | null;
         statement_source: string | null;
         hints: string | null;
@@ -80,7 +95,7 @@ app.get("/api/problems/:slug", async (c) => {
       },
       [string]
     >(
-      `SELECT qid, slug, title, difficulty, topics, statement_md, statement_source, hints,
+      `SELECT qid, slug, title, difficulty, topics, pattern, statement_md, statement_source, hints,
               snippets, meta_json, examples, fetched_at
        FROM problems WHERE slug = ?`,
     )
@@ -165,6 +180,7 @@ app.get("/api/problems/:slug", async (c) => {
     title: row.title,
     difficulty: row.difficulty,
     topics: (row.topics ?? "").split(",").filter(Boolean),
+    pattern: row.pattern,
     statementMd,
     statementSource,
     premiumLocked,
@@ -456,6 +472,35 @@ app.get("/api/review", (c) => {
   return c.json({ due: dueQueue(list, limit) });
 });
 
+/** Patterns due for review, each with a representative problem to re-solve. */
+app.get("/api/review/patterns", (c) => {
+  const limit = Math.min(Number(c.req.query("limit") ?? 10), 50);
+  return c.json({ due: duePatterns(limit) });
+});
+
+/**
+ * Schedule a pattern from an attempt the student just completed.
+ *
+ * Called by the client after `/api/attempts` succeeds, because the attempt has to exist
+ * before its grade can be read. Not folded into `/api/attempts` because a problem belongs to
+ * exactly one pattern and the pattern review is a separate, deliberate act.
+ */
+app.post("/api/review/patterns/:pattern/grade", async (c) => {
+  const pattern = decodeURIComponent(c.req.param("pattern"));
+  const body = (await c.req.json().catch(() => ({}))) as { qid?: number };
+  if (typeof body.qid !== "number") return c.json({ error: "qid is required" }, 400);
+
+  const row = db
+    .query<{ grade: number }, [number]>(
+      "SELECT grade FROM attempts WHERE qid = ? AND grade IS NOT NULL ORDER BY id DESC LIMIT 1",
+    )
+    .get(body.qid);
+  if (!row) return c.json({ error: "no graded attempt for that problem" }, 404);
+
+  const schedule = reviewPattern(pattern, row.grade as Grade);
+  return c.json({ due: schedule.due.toISOString(), intervalDays: schedule.intervalDays });
+});
+
 app.get("/api/next", (c) => {
   const list = c.req.query("list") ?? "neetcode150";
   return c.json({ next: nextUnsolved(list, Math.min(Number(c.req.query("limit") ?? 10), 50)) });
@@ -562,6 +607,139 @@ app.post("/api/tutor/:slug/review", async (c) => {
     return c.json(review);
   } catch (e) {
     return c.json({ error: e instanceof Error ? e.message : String(e) }, 502);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// System design
+// ---------------------------------------------------------------------------
+
+/** The prompt list. Summaries only — the answer keys never reach the client. */
+app.get("/api/design", (c) => {
+  return c.json({ prompts: listDesignPrompts() });
+});
+
+app.post("/api/design/start", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as { slug?: string };
+  if (typeof body.slug !== "string") return c.json({ error: "slug is required" }, 400);
+  try {
+    const sessionId = startDesignSession(body.slug);
+    return c.json({ sessionId, session: loadSession(sessionId) });
+  } catch (e) {
+    return c.json({ error: e instanceof Error ? e.message : String(e) }, 404);
+  }
+});
+
+/**
+ * The round still in progress, or null.
+ *
+ * The client calls this on mount so a reload — the one event that would otherwise lose an
+ * unfinished round — lands back on the work rather than on an empty prompt list.
+ *
+ * Registered BEFORE `/api/design/:id`: Hono matches in registration order, so a later
+ * literal route would be captured by the parameter route and rejected as a bad id.
+ */
+app.get("/api/design/resume", (c) => {
+  return c.json({ session: latestOpenSession() });
+});
+
+app.get("/api/design/:id", (c) => {
+  const id = Number(c.req.param("id"));
+  if (!Number.isInteger(id)) return c.json({ error: "bad id" }, 400);
+  try {
+    return c.json({ session: loadSession(id) });
+  } catch {
+    return c.json({ error: "unknown design session" }, 404);
+  }
+});
+
+app.post("/api/design/:id/turn", async (c) => {
+  const id = Number(c.req.param("id"));
+  if (!Number.isInteger(id)) return c.json({ error: "bad id" }, 400);
+  const body = (await c.req.json().catch(() => ({}))) as { message?: string };
+
+  try {
+    const turn = await designTurn(id, body.message ?? "");
+    return c.json({ turn, session: loadSession(id) });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return c.json({ error: msg }, msg.startsWith("unknown design session") ? 404 : 502);
+  }
+});
+
+/** Persist one phase draft, so a reload does not lose work. */
+app.post("/api/design/:id/draft", async (c) => {
+  const id = Number(c.req.param("id"));
+  if (!Number.isInteger(id)) return c.json({ error: "bad id" }, 400);
+  const body = (await c.req.json().catch(() => ({}))) as {
+    phase?: string;
+    text?: string;
+    sketchPng?: string | null;
+  };
+  if (typeof body.phase !== "string" || typeof body.text !== "string") {
+    return c.json({ error: "phase and text are required" }, 400);
+  }
+
+  try {
+    saveDraft(id, body.phase, body.text, body.sketchPng);
+    return c.json({ ok: true });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return c.json({ error: msg }, msg.startsWith("unknown design session") ? 404 : 400);
+  }
+});
+
+/**
+ * Finish and grade the round.
+ *
+ * A round graded below the scheduling threshold still returns its scores; only the card is
+ * withheld. Reporting nothing for a weak round would remove the feedback the round exists to
+ * give, and the card is the part that has to be earned.
+ */
+app.post("/api/design/:id/finish", async (c) => {
+  const id = Number(c.req.param("id"));
+  if (!Number.isInteger(id)) return c.json({ error: "bad id" }, 400);
+
+  try {
+    const session = loadSession(id);
+    const result = await gradeDesign(id);
+
+    // Only a round that cleared the bottom band comes back for review — the same rule the DSA
+    // path applies when nothing passed. A round scored `Again` is not evidence of a pattern
+    // worth scheduling.
+    let schedule: { due: string; intervalDays: number } | null = null;
+    if (result.grade > 1) {
+      const s = reviewDesign(session.slug, session.title, result.grade as Grade);
+      schedule = { due: s.due.toISOString(), intervalDays: s.intervalDays };
+    }
+
+    // The bridge target, resolved through the component table so the language prefix comes
+    // from the seeded row rather than being assumed here. A prompt whose component is not in
+    // the catalogue simply has no bridge.
+    const bridge = getDesignPrompt(session.slug)?.componentSlug ?? null;
+    const component = bridge ? getComponent(`python3/${bridge}`) : null;
+    return c.json({
+      scores: result.scores,
+      signals: result.signals,
+      grade: result.grade,
+      summary: result.summary,
+      model: result.model,
+      costIdr: result.costIdr,
+      nextDue: schedule?.due ?? null,
+      intervalDays: schedule?.intervalDays ?? null,
+      // The bridge to the Build track. Sent only with the finished round rather than in the
+      // prompt list, because naming the component before the round would be a hint about the
+      // design — the candidate is meant to arrive at it themselves.
+      //
+      // The slug is prefixed with the language so the Build view can open it directly: the
+      // catalogue is keyed by `lang/slug`, and a bare slug would silently fail to match and
+      // land the candidate on whichever component happens to be first. `component.slug` is
+      // already prefixed by `getComponent`, so it is used as-is rather than prefixed again.
+      componentSlug: component?.slug ?? null,
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return c.json({ error: msg }, msg.startsWith("unknown design session") ? 404 : 502);
   }
 });
 
@@ -892,6 +1070,70 @@ app.post("/api/concepts/run", async (c) => {
 
   const result = await runConcept(body.slug, body.code);
   const schedule = recordConcept(
+    body.slug,
+    { accepted: result.accepted, passed: result.passed, total: result.total },
+    body.seconds ?? 0,
+  );
+
+  return c.json({
+    ...result,
+    disclaimer:
+      `${result.total} test case${result.total === 1 ? "" : "s"} executed locally. ` +
+      `Same runner as the DSA problems.`,
+    grade: schedule.grade,
+    nextDue: schedule.due,
+    intervalDays: schedule.intervalDays,
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Components (executable system design)
+// ---------------------------------------------------------------------------
+
+/**
+ * Components grouped into modules, in teaching order.
+ *
+ * Addressed by QUERY parameter for the same reason the concepts are: the slug contains a slash
+ * (`python3/lru-cache`) and a `:slug` route would 404 on every real slug, while a wildcard
+ * would swallow `/api/components/run`.
+ */
+app.get("/api/components", (c) => {
+  const lang = c.req.query("lang") ?? undefined;
+  return c.json({
+    lang: lang ?? null,
+    languages: COMPONENT_LANGS,
+    langLabels: COMPONENT_LANG_LABEL,
+    modules: componentModules(lang),
+    total: listComponents(lang).length,
+  });
+});
+
+app.get("/api/components/item", (c) => {
+  const slug = c.req.query("slug");
+  if (!slug) return c.json({ error: "slug query parameter is required" }, 400);
+
+  const component = getComponent(slug);
+  if (!component) return c.json({ error: `unknown component: ${slug}` }, 404);
+
+  return c.json({ ...component, gradeLimitSeconds: GRADE_LIMIT_SECONDS });
+});
+
+/**
+ * Run a submission against a component's tests.
+ *
+ * Graded by the same executor the DSA problems and concepts use, and on a pass the component
+ * is scheduled through `item_cards` with the same behavioural grade.
+ */
+app.post("/api/components/run", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as { slug?: string; code?: string; seconds?: number };
+  if (!body.slug) return c.json({ error: "slug is required" }, 400);
+  if (typeof body.code !== "string") return c.json({ error: "code is required" }, 400);
+
+  const component = getComponent(body.slug);
+  if (!component) return c.json({ error: `unknown component: ${body.slug}` }, 404);
+
+  const result = await runComponent(body.slug, body.code);
+  const schedule = recordComponent(
     body.slug,
     { accepted: result.accepted, passed: result.passed, total: result.total },
     body.seconds ?? 0,

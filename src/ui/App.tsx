@@ -11,11 +11,14 @@ import { Markdown } from "./components/Markdown";
 import { Stopwatch, useStopwatchVisible } from "./components/Stopwatch";
 import { CaseTabs } from "./components/CaseTabs";
 import { FundamentalsView } from "./components/FundamentalsView";
+import { DesignView } from "./components/DesignView";
+import { ComponentsView } from "./components/ComponentsView";
 import {
   api,
   ApiError,
   GRADE_LABEL,
   type DueItem,
+  type DuePattern,
   type ListSummary,
   type ProblemDetail,
   type ProblemRow,
@@ -38,7 +41,9 @@ type View =
   | "companies"
   | "models"
   | "settings"
-  | "fundamentals";
+  | "fundamentals"
+  | "design"
+  | "components";
 
 export function App() {
   const [view, setView] = useState<View>("overview");
@@ -46,6 +51,7 @@ export function App() {
   const [catalog, setCatalog] = useState(0);
   const [activeList, setActiveList] = useState<string>("neetcode150");
   const [due, setDue] = useState<DueItem[]>([]);
+  const [duePatterns, setDuePatterns] = useState<DuePattern[]>([]);
   const [openSlug, setOpenSlug] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   /**
@@ -57,6 +63,13 @@ export function App() {
    * both need to close it.
    */
   const [navOpen, setNavOpen] = useState(false);
+  /** The component the Build view should open on arrival, set by the Design bridge. */
+  const [componentSlug, setComponentSlug] = useState<string | null>(null);
+
+  const openComponent = useCallback((slug: string) => {
+    setComponentSlug(slug);
+    setView("components");
+  }, []);
 
   const refreshLists = useCallback(async () => {
     try {
@@ -72,6 +85,8 @@ export function App() {
     try {
       const r = await api<{ due: DueItem[] }>("/api/review?limit=50");
       setDue(r.due);
+      const p = await api<{ due: DuePattern[] }>("/api/review/patterns?limit=20");
+      setDuePatterns(p.due);
     } catch (e) {
       setError(String(e));
     }
@@ -131,6 +146,8 @@ export function App() {
               ["review", "Review"],
               ["roadmap", "Roadmap"],
               ["fundamentals", "Fundamentals"],
+              ["design", "Design"],
+              ["components", "Build"],
               ["list", "Problems"],
               ["weakness", "Weakness"],
               ["companies", "Companies"],
@@ -142,6 +159,9 @@ export function App() {
               key={id}
               className={view === id ? "active" : ""}
               onClick={() => {
+                // An explicit nav click clears the Design bridge's target, so Build opens on
+                // the default rather than re-opening whatever round was last finished.
+                if (id === "components") setComponentSlug(null);
                 setView(id);
                 setNavOpen(false);
               }}
@@ -189,7 +209,7 @@ export function App() {
         ) : null}
 
         {view === "review" ? (
-          <Review due={due} onOpen={setOpenSlug} onRefresh={loadDue} />
+          <Review due={due} duePatterns={duePatterns} onOpen={setOpenSlug} onRefresh={loadDue} />
         ) : null}
 
         {view === "list" ? <ProblemList listName={activeList} onOpen={setOpenSlug} /> : null}
@@ -197,6 +217,12 @@ export function App() {
         {view === "roadmap" ? <RoadmapView onOpen={setOpenSlug} /> : null}
 
         {view === "fundamentals" ? <FundamentalsView onSolved={onSolved} /> : null}
+
+        {view === "design" ? <DesignView onBuild={openComponent} /> : null}
+
+        {view === "components" ? (
+          <ComponentsView initialSlug={componentSlug} onSolved={onSolved} />
+        ) : null}
 
         {view === "weakness" ? <MasteryView /> : null}
 
@@ -285,7 +311,17 @@ function Overview({
   );
 }
 
-function Review({ due, onOpen, onRefresh }: { due: DueItem[]; onOpen: (s: string) => void; onRefresh: () => void }) {
+function Review({
+  due,
+  duePatterns,
+  onOpen,
+  onRefresh,
+}: {
+  due: DueItem[];
+  duePatterns: DuePattern[];
+  onOpen: (s: string) => void;
+  onRefresh: () => void;
+}) {
   return (
     <>
       <div className="spread">
@@ -308,6 +344,28 @@ function Review({ due, onOpen, onRefresh }: { due: DueItem[]; onOpen: (s: string
         ))}
         {due.length === 0 ? <div className="empty">Nothing due right now.</div> : null}
       </div>
+
+      {duePatterns.length > 0 ? (
+        <>
+          <h2>Patterns due</h2>
+          <p className="muted small">
+            Re-solve the problem below from memory. The pattern's next review is scheduled from how
+            that attempt goes — pass it cleanly and it goes away for longer.
+          </p>
+          <div className="table">
+            {duePatterns.map((p) => (
+              <div key={p.pattern} className="problem-row" onClick={() => onOpen(p.slug)}>
+                <span className="qid">{p.reps}×</span>
+                <span className="title">
+                  {p.pattern}
+                  <span className="muted small"> · re-solve {p.title}</span>
+                </span>
+                <span className={`badge ${p.difficulty}`}>{p.difficulty}</span>
+              </div>
+            ))}
+          </div>
+        </>
+      ) : null}
     </>
   );
 }
@@ -447,6 +505,18 @@ function ProblemView({ slug, onBack }: { slug: string; onBack: () => void }) {
         }),
       });
       setAttempt(a);
+
+      // Schedule the pattern card too, from the same attempt's grade. Failure here must not
+      // fail the run — the attempt is already recorded, and a pattern card is a secondary
+      // artifact. Guarded on `a.nextDue`: an attempt that scheduled nothing (nothing passed)
+      // is not evidence for the pattern either.
+      const pattern = problem.pattern;
+      if (pattern && a.nextDue) {
+        void api(`/api/review/patterns/${encodeURIComponent(pattern)}/grade`, {
+          method: "POST",
+          body: JSON.stringify({ qid: problem.qid }),
+        }).catch(() => {});
+      }
     } catch (e) {
       // A 422 from /api/run is a statement about the problem, not about the student's code:
       // either it is a design problem or its examples are in a layout the parser cannot

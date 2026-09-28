@@ -258,6 +258,103 @@ export function dueQueue(listName: string | null, limit = 20): DueItem[] {
     : db.query<DueItem, [string, number]>(sql).all(now, limit);
 }
 
+/** A pattern due for review, with a representative problem to re-solve. */
+export type DuePattern = {
+  pattern: string;
+  due: string;
+  reps: number;
+  lapses: number;
+  /** The problem to re-solve: most recently solved, so it is the one freshest in memory. */
+  qid: number;
+  slug: string;
+  title: string;
+  difficulty: string;
+};
+
+/**
+ * Patterns due for review, oldest-due first.
+ *
+ * The representative problem is the one with the MOST RECENT passing attempt. Picking the
+ * oldest instead would re-solve the problem most likely to have been forgotten for reasons
+ * unrelated to the pattern, and picking at random would make the same pattern feel different
+ * every time.
+ *
+ * A pattern with no passed problem is excluded — there is nothing to re-solve, and a card
+ * for a pattern never attempted would be scheduled off no evidence at all.
+ */
+export function duePatterns(limit = 10): DuePattern[] {
+  return db
+    .query<DuePattern, [string, number]>(
+      `SELECT i.ref AS pattern, ic.due, ic.reps, ic.lapses,
+              p.qid, p.slug, p.title, p.difficulty
+       FROM item_cards ic
+       JOIN items i ON i.id = ic.item_id AND i.kind = 'pattern'
+       JOIN problems p ON p.qid = (
+         SELECT a.qid FROM attempts a
+         JOIN problems pp ON pp.qid = a.qid AND pp.pattern = i.ref
+         WHERE a.passed = 1
+         ORDER BY a.ended_at DESC LIMIT 1
+       )
+       WHERE ic.due <= ?
+       ORDER BY ic.due ASC LIMIT ?`,
+    )
+    .all(new Date().toISOString(), limit);
+}
+
+/**
+ * Schedule a pattern card from a completed attempt on its representative problem.
+ *
+ * The grade is the ATTEMPT's grade, not a new judgement: `gradeAttempt` already derives it
+ * from whether the tests passed, how many hints were used, and how long it took. Passing it
+ * through is what keeps the no-self-report rule intact at pattern granularity — the student
+ * never rates the pattern, they just re-solve a problem and the code decides.
+ *
+ * `items` is upserted first because `item_cards.item_id` references `items(id)` with foreign
+ * keys on, the same ordering `recordConcept` uses.
+ */
+export function reviewPattern(
+  pattern: string,
+  grade: Grade,
+  now = new Date(),
+): { due: Date; intervalDays: number } {
+  return reviewItem(ensureKindItem("pattern", pattern, pattern, null), grade, now);
+}
+
+/**
+ * Schedule a design round from its rubric grade.
+ *
+ * Same path as a pattern card — `items` + `item_cards` with `kind = 'design'` — so a design
+ * round comes back for review on the same FSRS curve as everything else rather than being a
+ * one-shot exercise.
+ */
+export function reviewDesign(
+  slug: string,
+  title: string,
+  grade: Grade,
+  now = new Date(),
+): { due: Date; intervalDays: number } {
+  return reviewItem(ensureKindItem("design", slug, title, null), grade, now);
+}
+
+/**
+ * The `items` row for a non-DSA item kind, created on first use.
+ *
+ * Shared by the pattern and design cards because they differ only in the kind string and
+ * what goes in `title`/`body_md`; a copy per kind would be the same four lines three times.
+ */
+function ensureKindItem(kind: string, ref: string, title: string, bodyMd: string | null): number {
+  db.run(
+    `INSERT INTO items (kind, ref, title, body_md) VALUES (?, ?, ?, ?)
+     ON CONFLICT(kind, ref) DO UPDATE SET title = excluded.title`,
+    [kind, ref, title, bodyMd],
+  );
+  const row = db
+    .query<{ id: number }, [string, string]>("SELECT id FROM items WHERE kind = ? AND ref = ?")
+    .get(kind, ref);
+  if (!row) throw new Error(`failed to create ${kind} item row for ${ref}`);
+  return row.id;
+}
+
 /** Next unsolved problems in a list — what to learn next. */
 export function nextUnsolved(listName: string, limit = 10): NextItem[] {
   return db

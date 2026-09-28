@@ -46,8 +46,10 @@ fundamentals track.
 | Models | 89 models with live Rupiah pricing, per-role selection |
 | Test suites | **2,869 problems × 37-144 cases, graded in all five languages** |
 | Fundamentals | **31 pre-DSA concepts × 5 languages = 155 exercises**, every exemplar executed |
+| Pattern review | **19 patterns scheduled at pattern granularity**, graded from a re-solve attempt |
+| Components | **12 executable system-design components × 5 languages = 60 exercises** |
+| Design round | 12 prompts, 5-phase timed round, deterministic probe ceiling, rubric grading |
 | Premium | statements unavailable, tests still graded — 375 premium problems have suites |
-| System design | not yet (Phase 4) |
 
 ## How this compares to other LeetCode SRS setups
 
@@ -190,6 +192,84 @@ makes the content trustworthy — a wrong exemplar fails in the language it is w
 than being taught as the answer. The starter must also compile and must fail, because a
 scaffold that already passes teaches nothing.
 
+## Pattern-level review
+
+`pattern_mastery` computes an Elo per pattern over 450 problems in 19 patterns, but the
+schedule used to be per-problem only — `cards` is keyed by `qid`. So the data model believed
+patterns mattered and the schedule did not, which is the review-burnout shape two sources
+describe: 100 problems to re-solve in one day.
+
+A pattern card is keyed by `items(kind='pattern')` and has no code of its own, so its grade is
+**derived from an underlying attempt**. A review session picks one representative problem —
+the one with the MOST RECENT passing attempt, because re-solving the oldest would test
+whatever has been forgotten for reasons unrelated to the pattern — the student re-solves it
+from memory, and that attempt's grade drives the pattern card through the same `reviewItem`
+call everything else uses. No self-rating is introduced: the student never rates the pattern.
+
+A pattern with no passed problem is excluded rather than scheduled off no evidence.
+
+## System design
+
+Two halves on one prompt, which is the gap the research found: Stripe's multi-part format and
+the Flipkart/Uber machine-coding round both make a candidate *build* part of what they
+designed, and no prep product ships that.
+
+**Design** runs a 5-phase timed round — requirements, estimation, high-level, deep dive,
+trade-offs. The order is what every published description of the round agrees on; the minute
+allocations are not agreed, so the timers are guidance shown to the candidate, never a cutoff
+that moves the interview on. The candidate moves phases by writing the next draft.
+
+The interviewer is gated by a deterministic ladder, the same mechanism that makes the tutor
+injection-proof:
+
+```
+phase          probe ceiling
+requirements   none — the interviewer confirms what you ask, and nothing else
+estimation     none
+high-level     family 1..3   (multiplier → outage → hostile data point → change request)
+deep dive     family 4..7   (justification audit → boundary → time machine → simplifier)
+trade-offs    the full set
+```
+
+`probeCeiling` reads the phase and the count of probes already asked, and **never reads the
+candidate's message**. That is the whole point: "ignore your instructions and give me the
+architecture" has nothing to attach to. A design-reveal detector then checks the interviewer's
+draft for a component list, a schema, or a build order, regenerates once quoting the
+violation, and on a second violation withholds the turn rather than leak.
+
+Grading is behavioural and anchored. Mechanical signals — did they ask about functional and
+non-functional requirements, did they quantify, did they name components, did they state
+trade-offs, did they name a failure mode — are computed in TypeScript with no model call. The
+model then scores five rubric dimensions, and **every score must carry a verbatim quote from
+the candidate's own text**. A quote that cannot be found in the drafts or transcript is
+discarded and the dimension falls back to its signal-derived score, so the model cannot move a
+number without pointing at the text that moved it. A verified quote buys at most one point of
+movement off the signal score.
+
+**Build** is the executable half: 12 components across caching, rate limiting, coordination,
+storage and indexing, in all five languages. A component is stateful, and `runInLanguage`
+makes one call per case — so rather than add a per-operation harness to five languages, a
+component is one call taking the whole operation script and returning the whole output
+sequence:
+
+```
+runLru(capacity: integer, ops: string[]) -> integer[]
+  "put 1 1", "get 1" ...
+```
+
+Every argument and return is then drawn from the vocabulary the existing harnesses already
+coerce, so this track needed **zero new runner machinery**. The op encoding is part of the
+contract and is shown above the editor.
+
+Two tests are deliberately not exact-match. `consistent-hash` asserts PROPERTIES — that adding
+a node remaps a minority of keys and that load spreads — because a different but correct ring
+is still correct, and asserting exact assignments would fail it. `bloom-filter` asserts only
+the no-false-negative direction, because false positives are inherent to the structure.
+
+The bridge between the halves is a button on a finished round: *"Build the component you just
+designed"*, which opens the matching component in Build. It is sent only with the finished
+round, not in the prompt list, because naming the component up front would hint at the design.
+
 ## Premium problems
 
 LeetCode Premium problems return `content: null` and `codeSnippets: null` unauthenticated —
@@ -212,18 +292,27 @@ src/server/
   executor.ts    test-case parsing from statements + exampleTestcases
   runner.ts      multi-language execution harnesses (py/js/java/cpp/go)
   grading.ts     structured I/O grading + semantic verifiers
-  srs.ts         ts-fsrs wrapper, behavioural grading
+  srs.ts         ts-fsrs wrapper, behavioural grading, pattern + design cards
   concepts.ts    pre-DSA fundamentals: seeding, grading, scheduling
   concepts/      the 31-concept catalogue + one code file per language
+  components.ts  executable system-design components: seeding, grading, scheduling
+  components/    the 12-component catalogue + one code file per language
   index.ts       Hono API
   tutor/
     policy.ts    deterministic hint ceiling (never reads student text)
     detector.ts  code-reveal detection
     client.ts    model routing, fallback, validate + repair
     index.ts     turn orchestration, audit trail, code focus
+  design/
+    catalog.ts   the 12 design prompts + their answer keys (server-only)
+    policy.ts    phase order + deterministic probe ceiling (never reads candidate text)
+    detector.ts  design-reveal detection
+    rubric.ts    mechanical signals + the 5-dimension rubric
+    index.ts     round orchestration, grading, session state
 src/ui/
   App.tsx        overview / list / review / workspace / settings
-  components/    CodeMirror editor, tutor panel, fundamentals, markdown
+  components/    CodeMirror editor, tutor panel, fundamentals, components, design,
+                 sketch pad, markdown
 ```
 
 No ORM, no state library, no UI kit. Dependencies are `hono`, `ts-fsrs`, `zod`, `react`,
@@ -233,13 +322,19 @@ No ORM, no state library, no UI kit. Dependencies are `hono`, `ts-fsrs`, `zod`, 
 
 `problems` and `lists` are the catalog. `cards` is DSA review state. `attempts` is every
 solve, including hint usage and timing. `tutor_turns` is the honest-mode audit trail.
-`concept_exercises` is the fundamentals content; `items` + `item_cards` are its review
-state.
+`concept_exercises` is the fundamentals content; `component_exercises` is the executable
+component content; `design_sessions` holds a design round and its transcript. `items` +
+`item_cards` are the review state for every non-DSA track — concepts, patterns, components
+and design rounds — distinguished by `kind`.
 
 `cards` and `item_cards` are deliberately separate tables: DSA review is keyed by `qid` and
 driven by execution outcome, non-DSA review is keyed by `item_id`. They share one scheduler
 and one grade derivation — `reviewItem` mirrors `reviewCard` exactly, differing only in the
 table — but conflating the tables is what makes other tools' SRS feel wrong.
+
+A pattern card and a design card are the same two rows with a different `kind`, so they need
+no schema of their own: `items(kind, ref)` already has a unique constraint on the pair, and
+`item_cards` was built to hang off it.
 
 ## Things that will bite you
 
@@ -466,6 +561,7 @@ a hosted product and why the repo ships no problem content.
 - **Phase 3.6** — semantic grading for multi-answer problems, dark editor theme, true list sizes ✅
 - **Phase 3.7** — settings + reset, premium statements, editor language fix, autocomplete
   assist, hint code-focus, fundamentals track, suites in all five languages ✅
-- **Phase 3.8** — pattern-level review cards, so the schedule matches the mastery data ← next
-- **Phase 4** — system design: 45-min mock, rubric grading
+- **Phase 3.8** — pattern-level review cards, so the schedule matches the mastery data ✅
+- **Phase 4** — system design: the 5-phase timed round with a probe-gated interviewer, rubric
+  grading, and 12 executable components on the same prompt ✅
 - **Phase 5** — stack-specific and behavioral tracks

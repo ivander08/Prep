@@ -98,14 +98,15 @@ export async function fetchCatalog(force = false): Promise<CatalogModel[]> {
   return models;
 }
 
-export type Role = "tutor" | "review";
+export type Role = "tutor" | "review" | "design";
 
 export const ROLE_LABEL: Record<Role, string> = {
   tutor: "Tutor (hint ladder)",
   review: "Code review (complexity + style)",
+  design: "Design interviewer (probe ladder)",
 };
 
-export const ROLES: Role[] = ["tutor", "review"];
+export const ROLES: Role[] = ["tutor", "review", "design"];
 
 /** The user's chosen model for a role, or null to use the built-in fallback chain. */
 export function getRoleModel(role: Role): string | null {
@@ -128,5 +129,5 @@ export function setRoleModel(role: Role, model: string | null): void {
 }
 
 export function allRoleModels(): Record<string, string | null> {
-  return { tutor: getRoleModel("tutor"), review: getRoleModel("review") };
+  return { tutor: getRoleModel("tutor"), review: getRoleModel("review"), design: getRoleModel("design") };
 }

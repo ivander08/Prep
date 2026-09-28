@@ -43,6 +43,8 @@ export type MasteryRow = {
   lapses: number;
   /** Elo expressed as an expected score against a Medium problem. */
   expectedVsMedium: number;
+  /** True when this pattern has at least one solved problem, so it can be reviewed. */
+  reviewable: boolean;
 };
 
 function expectedScore(playerElo: number, problemElo: number): number {
@@ -144,14 +146,19 @@ export function recomputeMastery(): number {
 
 /** Mastery rows, weakest first. Patterns with no attempts are excluded. */
 export function masteryReport(): MasteryRow[] {
+  // `reviewable` comes back from SQLite as 0/1, so the row type is the wire shape and the
+  // map converts it to the boolean the callers actually want.
+  type RawRow = Omit<MasteryRow, "reviewable"> & { reviewable: number };
   return db
-    .query<MasteryRow, []>(
+    .query<RawRow, []>(
       `SELECT pattern, elo, attempts, solved, hint_rate AS hintRate, lapses,
+              CASE WHEN solved > 0 THEN 1 ELSE 0 END AS reviewable,
               (1.0 / (1.0 + POWER(10, (1400 - elo) / 400.0))) AS expectedVsMedium
        FROM pattern_mastery
        ORDER BY elo ASC`,
     )
-    .all();
+    .all()
+    .map((r) => ({ ...r, reviewable: r.reviewable === 1 }));
 }
 
 /**

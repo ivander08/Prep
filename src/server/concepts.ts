@@ -68,9 +68,9 @@ export const LANGS = ["python3", "javascript", "java", "cpp", "go"] as const;
  * understand. Only these are emitted; the catalogue's tests are written to stay inside them
  * (no matrix inputs or returns — see catalog.ts).
  */
-type LeanType = "integer" | "integer[]" | "string" | "string[]" | "boolean";
+export type LeanType = "integer" | "integer[]" | "string" | "string[]" | "boolean";
 
-function leanTypeOf(value: unknown): LeanType | null {
+export function leanTypeOf(value: unknown): LeanType | null {
   if (typeof value === "number") return "integer";
   if (typeof value === "string") return "string";
   if (typeof value === "boolean") return "boolean";
@@ -98,8 +98,17 @@ function inferType(values: unknown[], fallback: LeanType): LeanType {
   return fallback;
 }
 
-/** The `metaData` shape the runner needs, derived from the tests. */
-export function metaFor(spec: (typeof CONCEPTS)[number]): ProblemMeta {
+/**
+ * The `metaData` shape the runner needs, derived from a spec's tests.
+ *
+ * Takes anything with a `name` and `tests` rather than a `ConceptSpec` so the component track
+ * can reuse it: the type-inference rule below (scanning every case, not just the first) is the
+ * part worth not writing twice, and it is identical for both catalogues.
+ */
+export function metaFor(spec: {
+  name: string;
+  tests: Array<{ args: unknown[]; expected: unknown }>;
+}): ProblemMeta {
   const arity = Math.max(...spec.tests.map((t) => t.args.length));
   const params = [];
   for (let i = 0; i < arity; i++) {

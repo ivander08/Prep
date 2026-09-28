@@ -1361,3 +1361,144 @@ pre.notice {
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
 }
+
+/* --- Design round ---------------------------------------------------------
+   The phase strip is guidance, not a gate, so it is styled as a progress
+   indicator rather than as a set of disabled/enabled steps: the candidate moves
+   on by writing the next draft, and a timer running over is amber, not fatal. */
+
+.phase-strip {
+  display: flex;
+  gap: 0;
+  margin-top: 14px;
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.phase {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 7px 9px;
+  background: var(--panel);
+  border-right: 1px solid var(--rule);
+  min-width: 0;
+}
+.phase:last-child { border-right: none; }
+.phase-name {
+  font-family: var(--din);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.phase-time { font-family: var(--mono); font-size: 10px; color: var(--faint); }
+.phase.done .phase-name { color: var(--pass); }
+.phase.active { background: var(--raise); }
+.phase.active .phase-name { color: var(--signal); }
+.phase.active .phase-time { color: var(--dim); }
+
+.design-field { margin-top: 14px; }
+.design-label {
+  display: block;
+  font-family: var(--din);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--dim);
+  margin-bottom: 5px;
+}
+.design-textarea {
+  width: 100%;
+  min-height: 96px;
+  resize: vertical;
+  padding: 9px 11px;
+  background: #0c0e11;
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+.design-textarea:focus { outline: none; border-color: var(--signal-dim); }
+
+.sketch { margin-top: 8px; }
+.sketch-head { gap: 8px; flex-wrap: wrap; }
+.sketch-pad {
+  display: block;
+  margin-top: 6px;
+  background: #0c0e11;
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  touch-action: none;
+  cursor: crosshair;
+}
+
+.design-results {
+  margin-top: 16px;
+  padding: 14px 16px;
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+}
+.dimension-row,
+.signal-row {
+  display: grid;
+  gap: 10px;
+  padding: 7px 2px;
+  border-bottom: 1px solid var(--rule);
+  align-items: baseline;
+}
+.dimension-row { grid-template-columns: 150px 44px 1fr; }
+.signal-row { grid-template-columns: 18px 1fr 1.2fr; }
+.dimension-row:last-child,
+.signal-row:last-child { border-bottom: none; }
+.dimension-name {
+  font-family: var(--din);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+.dimension-score { font-family: var(--mono); font-size: 12px; color: var(--dim); }
+.dimension-score.s4 { color: var(--pass); }
+.dimension-score.s3 { color: var(--easy); }
+.dimension-score.s2 { color: var(--medium); }
+.dimension-score.s1 { color: var(--fail); }
+.dimension-evidence { font-size: 12.5px; color: var(--dim); }
+.dimension-evidence em { color: var(--text); font-style: italic; }
+.signal-mark { font-family: var(--mono); font-size: 12px; }
+.signal-mark.on { color: var(--pass); }
+.signal-mark.off { color: var(--faint); }
+.signal-label { font-size: 12.5px; }
+.signal-words { overflow-wrap: anywhere; }
+
+/* --- Build track ---------------------------------------------------------- */
+
+.op-format { margin: 10px 0 14px; }
+.op-format-label {
+  display: block;
+  font-family: var(--din);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--faint);
+  margin-bottom: 6px;
+}
+
+@media (max-width: 860px) {
+  .phase { padding: 6px 6px; }
+  .phase-name { font-size: 8.5px; letter-spacing: 0.06em; }
+  .dimension-row { grid-template-columns: 110px 40px 1fr; }
+  .signal-row { grid-template-columns: 16px 1fr; }
+  .signal-words { grid-column: 2; }
+}
