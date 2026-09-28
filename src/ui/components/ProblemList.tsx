@@ -13,7 +13,6 @@ export type ListProblem = {
   acRate: number | null;
   attempts: number;
   hintsUsed: number | null;
-  hasFullTests: number;
 };
 
 type SortKey = "position" | "difficulty" | "acceptance" | "title" | "attempts";
@@ -235,11 +234,6 @@ export function ProblemList({ listName, onOpen }: { listName: string; onOpen: (s
                     ) : null}
                   </span>
                   <span className="row" style={{ gap: 10 }}>
-                    {p.hasFullTests ? (
-                      <span className="suite-tag" title="has a full test suite">
-                        suite
-                      </span>
-                    ) : null}
                     {p.attempts > 0 && p.solved === 0 ? (
                       <span className="mono muted small">{p.attempts}×</span>
                     ) : null}

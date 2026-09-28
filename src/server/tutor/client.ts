@@ -15,9 +15,23 @@
  */
 
 import { getRoleModel, type Role } from "../models.ts";
-import { db } from "../db.ts";
+import { db, getMeta } from "../db.ts";
 
 const BASE = process.env.KENARI_BASE_URL ?? "https://kenari.id/v1";
+
+/**
+ * The API key, from the environment if set, otherwise from the local database.
+ *
+ * The env var wins so a shell-provided key is never silently overridden by a stale value
+ * saved in the UI. The stored key is plaintext in `prep.db` — the same file that already
+ * holds all progress, on a single-user machine. The UI shows it masked and offers Clear.
+ *
+ * Read per call rather than cached at module load: the whole point of the settings screen
+ * is that saving a key takes effect without restarting the server.
+ */
+export function apiKey(): string | null {
+  return process.env.KENARI_API_KEY ?? getMeta("kenari_api_key") ?? null;
+}
 
 /**
  * Fallback chain, cheapest useful model first. `deepseek-v4-1-flash` is Rp 150/M in,
@@ -138,8 +152,13 @@ async function callOnce(
   messages: ChatMessage[],
   opts: { tools?: ToolDef[]; forceTool?: string; maxTokens?: number; temperature?: number },
 ): Promise<ChatResult> {
-  const key = process.env.KENARI_API_KEY;
-  if (!key) throw new KenariError("KENARI_API_KEY is not set", 0);
+  const key = apiKey();
+  if (!key) {
+    throw new KenariError(
+      "no API key: set KENARI_API_KEY in the environment, or save one under Settings in the app",
+      0,
+    );
+  }
 
   const body: Record<string, unknown> = {
     model,

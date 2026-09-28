@@ -65,7 +65,9 @@ describe("buildTestCases", () => {
       metaData: META,
     });
     expect(cases).toHaveLength(0);
-    expect(parseWarning).toMatch(/cannot grade reliably/);
+    // Names the cause rather than the symptom, and reports the counts for diagnosis.
+    expect(parseWarning).toMatch(/not in the standard "Input:\/Output:" layout/);
+    expect(parseWarning).toMatch(/3 input groups, 0 output lines/);
   });
 
   test("marks order-insensitive problems", () => {

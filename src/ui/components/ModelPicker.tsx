@@ -162,11 +162,13 @@ export function ModelPicker() {
         {visible.map((m) => (
           <div key={m.id} className="tr">
             <span className="mono">{m.id}</span>
-            <span className="mono">{formatPerM(m.inputPerM)}</span>
-            <span className="mono">{formatPerM(m.outputPerM)}</span>
-            <span className="mono">{m.cacheReadPerM === null ? "—" : formatPerM(m.cacheReadPerM)}</span>
-            <span className="mono">{formatContext(m.contextLength)}</span>
-            <span className="muted small">
+            <span className="mono" data-label="in">{formatPerM(m.inputPerM)}</span>
+            <span className="mono" data-label="out">{formatPerM(m.outputPerM)}</span>
+            <span className="mono" data-label="cached">
+              {m.cacheReadPerM === null ? "—" : formatPerM(m.cacheReadPerM)}
+            </span>
+            <span className="mono" data-label="ctx">{formatContext(m.contextLength)}</span>
+            <span className="muted small" data-label="flags">
               {m.free ? "free " : ""}
               {m.toolCall ? "tools " : ""}
               {m.reasoning ? "reasoning " : ""}

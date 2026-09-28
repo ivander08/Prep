@@ -1,10 +1,27 @@
 import { useEffect, useRef } from "react";
-import { EditorState } from "@codemirror/state";
+import { autocompletion, completeAnyWord } from "@codemirror/autocomplete";
+import { Compartment, EditorState, type Extension } from "@codemirror/state";
 import { EditorView, keymap, lineNumbers, highlightActiveLine, drawSelection } from "@codemirror/view";
 import { defaultKeymap, indentWithTab, history, historyKeymap } from "@codemirror/commands";
+import { cpp } from "@codemirror/lang-cpp";
+import { go } from "@codemirror/lang-go";
+import { java } from "@codemirror/lang-java";
+import { javascript } from "@codemirror/lang-javascript";
 import { python } from "@codemirror/lang-python";
-import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
+import { HighlightStyle, syntaxHighlighting, type LanguageSupport } from "@codemirror/language";
+import { lintGutter, setDiagnostics } from "@codemirror/lint";
 import { tags as t } from "@lezer/highlight";
+
+/**
+ * How much the editor helps.
+ *
+ * `full` is the honest default for a real editor and the wrong default for interview
+ * practice: recalling that `defaultdict` or `heapq` exists is part of the exercise, and a
+ * popup that names the API removes exactly the part being tested.
+ */
+export type AssistLevel = "off" | "words" | "full";
+
+export type Focus = { quote: string; why: string };
 
 type Props = {
   value: string;
@@ -12,7 +29,38 @@ type Props = {
   /** Ctrl/Cmd+Enter */
   onRun?: () => void;
   readOnly?: boolean;
+  /** Language id matching src/server/languages.ts. Drives syntax highlighting. */
+  language?: string;
+  /** Autocomplete depth. Defaults to "words". */
+  assist?: AssistLevel;
+  /** A region of this document the tutor's last hint referred to, if any. */
+  focus?: Focus | null;
+  /** Called when the student edits, so the highlight can be dropped. */
+  onFocusClear?: () => void;
 };
+
+/**
+ * Syntax support per language id.
+ *
+ * The editor previously hardcoded `python()`, so selecting C++ or Java left Python
+ * highlighting in place — a real bug, not a cosmetic one: keyword colouring is the fastest
+ * signal that the editor is in the mode you think it is.
+ *
+ * Python, JavaScript and Go ship completion sources as language data; Java and C++ ship
+ * highlighting only. Falling back to Python for an unknown id keeps the editor usable
+ * rather than throwing.
+ */
+const SYNTAX: Record<string, () => LanguageSupport> = {
+  python3: () => python(),
+  javascript: () => javascript(),
+  java: () => java(),
+  cpp: () => cpp(),
+  go: () => go(),
+};
+
+function syntaxFor(language: string | undefined): LanguageSupport {
+  return (SYNTAX[language ?? "python3"] ?? SYNTAX.python3)!();
+}
 
 /**
  * Syntax colours for a dark editor.
@@ -85,18 +133,138 @@ const darkTheme = EditorView.theme(
 );
 
 /**
+ * Autocomplete by level.
+ *
+ * `off` registers nothing at all. `words` registers ONLY `completeAnyWord`, which completes
+ * identifiers already present in this document — so it saves retyping `intervals` without
+ * ever naming a library API. `full` registers plain `autocompletion()`, which additionally
+ * picks up the completion source the syntax extension publishes as language data (Python
+ * builtins, JS globals, Go keywords).
+ *
+ * The difference is narrower than the names suggest, and that is worth stating rather than
+ * implying: `words` is a superset of nothing and a subset of `full`, both complete what you
+ * have already typed, and only `full` adds anything from the language. Measured over the five
+ * languages here, `full` adds a source for python3, javascript and go, and NOTHING for java
+ * and cpp — those two ship highlighting only, so `full` behaves exactly like `words` there.
+ */
+const ASSIST: Record<AssistLevel, () => Extension> = {
+  off: () => [],
+  words: () =>
+    autocompletion({ activateOnTyping: true, override: [completeAnyWord], icons: false }),
+  full: () => autocompletion({ activateOnTyping: true }),
+};
+
+/** Which languages `full` actually adds completions for, asked of CodeMirror rather than
+ * hardcoded — a hand-written list would silently go stale if a language package started
+ * shipping a source. Memoised because building a state is not free and the answer is fixed. */
+const assistLanguageDataCache = new Map<string, boolean>();
+
+export function assistFullIsInert(language: string): boolean {
+  const cached = assistLanguageDataCache.get(language);
+  if (cached !== undefined) return cached;
+  const state = EditorState.create({ doc: "", extensions: [syntaxFor(language)] });
+  const inert = state.languageDataAt("autocomplete", 0).length === 0;
+  assistLanguageDataCache.set(language, inert);
+  return inert;
+}
+
+export const ASSIST_LABEL: Record<AssistLevel, string> = {
+  off: "No assist",
+  words: "Words I typed",
+  full: "Words + library",
+};
+
+/** One line per level, shown under the picker so the choice is not a guess. */
+export const ASSIST_HELP: Record<AssistLevel, string> = {
+  off: "No suggestions at all.",
+  words:
+    "Completes identifiers already in this file — retype `intervals` once and it is offered next time. Never names a library API.",
+  full: "Everything above, plus the language's own names: Python builtins, JS globals, Go keywords.",
+};
+
+/**
+ * Shown when `full` is selected in a language with no completion source, where it is
+ * indistinguishable from `words`. Says so rather than describing a difference that is not
+ * there — a control that silently does nothing is worse than one that admits it.
+ */
+export const ASSIST_INERT_HELP =
+  "Java and C++ publish no completion data, so this is exactly the same as 'Words I typed' here. Use it in Python, JavaScript, or Go to get builtins and keywords.";
+
+function assistFor(level: AssistLevel | undefined): Extension {
+  return (ASSIST[level ?? "words"] ?? ASSIST.words)();
+}
+
+/**
+ * The autocomplete control: a segmented picker plus the explanation for the current level.
+ *
+ * Replaces a `<select>` whose two non-default options read "Word complete" and "Full assist"
+ * — names that do not say what differs, which is the actual problem with the old control.
+ * The labels now describe the SOURCE of the suggestions (what you typed vs. the language's
+ * own names) and the line underneath states the rule for whichever level is selected.
+ *
+ * It also reports when the level makes no difference: Java and C++ publish no language data,
+ * so `full` there is identical to `words`, and a control that silently does nothing is worse
+ * than one that says it does nothing.
+ */
+export function AssistPicker({
+  value,
+  onChange,
+  language,
+}: {
+  value: AssistLevel;
+  onChange: (v: AssistLevel) => void;
+  language: string;
+}) {
+  const inert = value === "full" && assistFullIsInert(language);
+  return (
+    <div className="assist-picker">
+      <div className="seg" role="group" aria-label="Autocomplete">
+        {(["off", "words", "full"] as AssistLevel[]).map((level) => (
+          <button
+            key={level}
+            className={`seg-item${level === value ? " active" : ""}`}
+            aria-pressed={level === value}
+            onClick={() => onChange(level)}
+          >
+            {ASSIST_LABEL[level]}
+          </button>
+        ))}
+      </div>
+      <p className={`assist-help${inert ? " inert" : ""}`}>
+        {inert ? ASSIST_INERT_HELP : ASSIST_HELP[value]}
+      </p>
+    </div>
+  );
+}
+
+/**
  * Thin CodeMirror 6 wrapper. CodeMirror owns the DOM, so React must not re-render the
  * editor on every keystroke — the view is created once and updated imperatively only when
  * `value` changes from outside.
  */
-export function CodeEditor({ value, onChange, onRun, readOnly = false }: Props) {
+export function CodeEditor({
+  value,
+  onChange,
+  onRun,
+  readOnly = false,
+  language,
+  assist,
+  focus,
+  onFocusClear,
+}: Props) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
   const onChangeRef = useRef(onChange);
   const onRunRef = useRef(onRun);
+  const onFocusClearRef = useRef(onFocusClear);
+  /** Holds the syntax extension so it can be swapped without rebuilding the view. */
+  const langCompartment = useRef(new Compartment());
+  /** Same, for autocomplete depth. */
+  const assistCompartment = useRef(new Compartment());
 
   onChangeRef.current = onChange;
   onRunRef.current = onRun;
+  onFocusClearRef.current = onFocusClear;
 
   useEffect(() => {
     if (!host.current) return;
@@ -105,10 +273,12 @@ export function CodeEditor({ value, onChange, onRun, readOnly = false }: Props) 
       doc: value,
       extensions: [
         lineNumbers(),
+        lintGutter(),
         highlightActiveLine(),
         history(),
         drawSelection(),
-        python(),
+        langCompartment.current.of(syntaxFor(language)),
+        assistCompartment.current.of(assistFor(assist)),
         syntaxHighlighting(darkHighlight),
         darkTheme,
         keymap.of([
@@ -125,7 +295,12 @@ export function CodeEditor({ value, onChange, onRun, readOnly = false }: Props) 
           ...historyKeymap,
         ]),
         EditorView.updateListener.of((u) => {
-          if (u.docChanged) onChangeRef.current(u.state.doc.toString());
+          if (u.docChanged) {
+            onChangeRef.current(u.state.doc.toString());
+            // A hint highlight points at offsets in the code as it was when the hint was
+            // asked for. Once the student types, those offsets describe a different region.
+            onFocusClearRef.current?.();
+          }
         }),
         ...(readOnly ? [EditorState.readOnly.of(true)] : []),
       ],
@@ -140,6 +315,65 @@ export function CodeEditor({ value, onChange, onRun, readOnly = false }: Props) 
     // Created once on mount; `value` is synced in the effect below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [readOnly]);
+
+  // Swap syntax support when the language selector changes, without recreating the view —
+  // rebuilding would discard undo history and the caret position.
+  useEffect(() => {
+    const v = view.current;
+    if (!v) return;
+    v.dispatch({ effects: langCompartment.current.reconfigure(syntaxFor(language)) });
+  }, [language]);
+
+  useEffect(() => {
+    const v = view.current;
+    if (!v) return;
+    v.dispatch({ effects: assistCompartment.current.reconfigure(assistFor(assist)) });
+  }, [assist]);
+
+  /**
+   * Highlight the region of the student's own code a hint referred to.
+   *
+   * The tutor returns a verbatim quote, not a line number, because line arithmetic is the
+   * unreliable part of what a model produces — a substring can be located by search no
+   * matter how the model counted. The quote is resolved here rather than on the server
+   * because only the editor knows what the document looks like now.
+   *
+   * A quote that is absent or appears more than once is dropped instead of guessed at: a
+   * highlight in the wrong place is worse than no highlight, because it asserts a precision
+   * the hint does not have.
+   *
+   * `setDiagnostics` is used rather than a decoration because CodeMirror maps diagnostics
+   * through document changes automatically, so the range survives edits above it.
+   */
+  useEffect(() => {
+    const v = view.current;
+    if (!v) return;
+
+    if (!focus) {
+      v.dispatch(setDiagnostics(v.state, []));
+      return;
+    }
+
+    const doc = v.state.doc.toString();
+    const idx = doc.indexOf(focus.quote);
+    if (idx < 0 || doc.indexOf(focus.quote, idx + 1) !== -1) {
+      v.dispatch(setDiagnostics(v.state, []));
+      return;
+    }
+
+    v.dispatch(
+      setDiagnostics(v.state, [
+        {
+          from: idx,
+          to: idx + focus.quote.length,
+          severity: "info",
+          source: "tutor",
+          message: focus.why,
+        },
+      ]),
+    );
+    v.dispatch({ effects: EditorView.scrollIntoView(idx, { y: "center" }) });
+  }, [focus]);
 
   // Sync external changes (e.g. loading a different problem) without clobbering typing.
   useEffect(() => {

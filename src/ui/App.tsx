@@ -1,13 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CodeEditor } from "./components/CodeEditor";
+import { CodeEditor, AssistPicker, type AssistLevel, type Focus } from "./components/CodeEditor";
 import { TutorPanel } from "./components/TutorPanel";
 import { ModelPicker } from "./components/ModelPicker";
 import { MasteryView } from "./components/MasteryView";
 import { CompaniesView } from "./components/CompaniesView";
 import { RoadmapView } from "./components/RoadmapView";
 import { ProblemList } from "./components/ProblemList";
+import { SettingsView } from "./components/SettingsView";
+import { Markdown } from "./components/Markdown";
+import { Stopwatch, useStopwatchVisible } from "./components/Stopwatch";
+import { CaseTabs } from "./components/CaseTabs";
+import { FundamentalsView } from "./components/FundamentalsView";
 import {
   api,
+  ApiError,
   GRADE_LABEL,
   type DueItem,
   type ListSummary,
@@ -23,7 +29,16 @@ const STARTERS: Record<string, string> = {
   python3: "class Solution:\n    def solve(self):\n        pass\n",
 };
 
-type View = "overview" | "list" | "roadmap" | "review" | "weakness" | "companies" | "models";
+type View =
+  | "overview"
+  | "list"
+  | "roadmap"
+  | "review"
+  | "weakness"
+  | "companies"
+  | "models"
+  | "settings"
+  | "fundamentals";
 
 export function App() {
   const [view, setView] = useState<View>("overview");
@@ -33,6 +48,15 @@ export function App() {
   const [due, setDue] = useState<DueItem[]>([]);
   const [openSlug, setOpenSlug] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * Whether the navigation drawer is open, on screens too narrow for the fixed sidebar.
+   *
+   * The sidebar is 216px of a phone's 390px, which left 174px for the app and pushed every
+   * view into horizontal overflow. Below 860px it becomes an off-canvas drawer instead. The
+   * state lives here rather than in the sidebar because the backdrop and the nav buttons
+   * both need to close it.
+   */
+  const [navOpen, setNavOpen] = useState(false);
 
   const refreshLists = useCallback(async () => {
     try {
@@ -77,7 +101,25 @@ export function App() {
 
   return (
     <div className="layout">
-      <aside className="sidebar">
+      {/* Shown only below the drawer breakpoint. `display: none` above it, so on desktop the
+          grid still has exactly the two children it expects. */}
+      <header className="topbar">
+        <button
+          className="menu-btn"
+          onClick={() => setNavOpen((o) => !o)}
+          aria-label="Toggle navigation"
+          aria-expanded={navOpen}
+        >
+          ☰
+        </button>
+        <span className="topbar-title">Prep</span>
+      </header>
+
+      {navOpen ? (
+        <div className="nav-backdrop" onClick={() => setNavOpen(false)} aria-hidden="true" />
+      ) : null}
+
+      <aside className={`sidebar${navOpen ? " open" : ""}`}>
         <div className="brand">
           <span>Prep</span>
         </div>
@@ -88,13 +130,22 @@ export function App() {
               ["overview", "Overview"],
               ["review", "Review"],
               ["roadmap", "Roadmap"],
+              ["fundamentals", "Fundamentals"],
               ["list", "Problems"],
               ["weakness", "Weakness"],
               ["companies", "Companies"],
               ["models", "Models"],
+              ["settings", "Settings"],
             ] as const
           ).map(([id, label]) => (
-            <button key={id} className={view === id ? "active" : ""} onClick={() => setView(id)}>
+            <button
+              key={id}
+              className={view === id ? "active" : ""}
+              onClick={() => {
+                setView(id);
+                setNavOpen(false);
+              }}
+            >
               <span>{label}</span>
               {id === "review" && due.length > 0 ? <span className="count">{due.length}</span> : null}
             </button>
@@ -112,6 +163,7 @@ export function App() {
                 onClick={() => {
                   setActiveList(l);
                   setView("list");
+                  setNavOpen(false);
                 }}
               >
                 <span>{l}</span>
@@ -144,11 +196,15 @@ export function App() {
 
         {view === "roadmap" ? <RoadmapView onOpen={setOpenSlug} /> : null}
 
+        {view === "fundamentals" ? <FundamentalsView onSolved={onSolved} /> : null}
+
         {view === "weakness" ? <MasteryView /> : null}
 
         {view === "companies" ? <CompaniesView onOpen={setOpenSlug} /> : null}
 
         {view === "models" ? <ModelPicker /> : null}
+
+        {view === "settings" ? <SettingsView onReset={onSolved} /> : null}
       </main>
     </div>
   );
@@ -267,17 +323,48 @@ function ProblemView({ slug, onBack }: { slug: string; onBack: () => void }) {
   const [attempt, setAttempt] = useState<AttemptResponse | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** A 422 from /api/run: the problem cannot be graded here. Not the student's failure. */
+  const [notGradeable, setNotGradeable] = useState<{ message: string; className: string | null } | null>(null);
   const [hintsUsed, setHintsUsed] = useState(0);
   const [language, setLanguage] = useState("python3");
+  /**
+   * Default "words": it completes identifiers you already wrote, which removes retyping
+   * without handing over API recall — the part interview practice is meant to test.
+   */
+  const [assist, setAssist] = useState<AssistLevel>("words");
+  const [showTimer, setShowTimer] = useStopwatchVisible();
+  /** The region the tutor's last hint pointed at, resolved against the current document. */
+  const [focus, setFocus] = useState<Focus | null>(null);
   const [languages, setLanguages] = useState<Array<{ id: string; label: string; langSlug: string; available: boolean }>>([]);
   const startedAt = useRef<number>(Date.now());
+
+  /**
+   * Load the problem. Extracted from the effect so the Premium panel can re-fetch after a
+   * pasted statement is saved, without duplicating the starter-code logic.
+   */
+  const loadProblem = useCallback(
+    async (opts: { resetTimers: boolean; cancelled?: () => boolean }) => {
+      const p = await api<ProblemDetail>(`/api/problems/${slug}`);
+      if (opts.cancelled?.()) return;
+      setProblem(p);
+      const starter =
+        p.snippets.find((s) => s.langSlug === "python3")?.code ??
+        STARTERS.python3 ??
+        "class Solution:\n    pass\n";
+      setCode(starter);
+      if (opts.resetTimers) startedAt.current = Date.now();
+    },
+    [slug],
+  );
 
   useEffect(() => {
     let cancelled = false;
     setProblem(null);
     setRun(null);
     setAttempt(null);
+    setNotGradeable(null);
     setHintsUsed(0);
+    setFocus(null);
     startedAt.current = Date.now();
 
     api<{ languages: Array<{ id: string; label: string; langSlug: string; available: boolean }> }>(
@@ -286,22 +373,14 @@ function ProblemView({ slug, onBack }: { slug: string; onBack: () => void }) {
       .then((r) => !cancelled && setLanguages(r.languages))
       .catch(() => {});
 
-    api<ProblemDetail>(`/api/problems/${slug}`)
-      .then((p) => {
-        if (cancelled) return;
-        setProblem(p);
-        const starter =
-          p.snippets.find((s) => s.langSlug === "python3")?.code ??
-          STARTERS.python3 ??
-          "class Solution:\n    pass\n";
-        setCode(starter);
-      })
-      .catch((e) => !cancelled && setError(String(e)));
+    loadProblem({ resetTimers: false, cancelled: () => cancelled }).catch(
+      (e) => !cancelled && setError(String(e)),
+    );
 
     return () => {
       cancelled = true;
     };
-  }, [slug]);
+  }, [slug, loadProblem]);
 
   const switchLanguage = useCallback(
     (id: string) => {
@@ -310,14 +389,43 @@ function ProblemView({ slug, onBack }: { slug: string; onBack: () => void }) {
       const snippet = meta ? problem?.snippets.find((sn) => sn.langSlug === meta.langSlug)?.code : null;
       if (snippet) setCode(snippet);
       setRun(null);
+      setNotGradeable(null);
+      setFocus(null);
     },
     [languages, problem],
+  );
+
+  /**
+   * Identity-stable view of the last run, for the tutor panel.
+   *
+   * The panel refreshes its ceiling when `lastRun` changes identity, so this must change once
+   * per RUN — not once per render, and not on every keystroke. Keying it on `code` as well
+   * would fire a status request per character typed.
+   *
+   * The consequence is that "Review my code" reviews the code as it was when it was run,
+   * rather than the current buffer. That is the more honest semantic: the review comments on
+   * what produced the test result it is given alongside.
+   */
+  const lastRunForTutor = useMemo(
+    () =>
+      run
+        ? {
+            passed: run.accepted,
+            testsPassed: run.passed,
+            testsTotal: run.total,
+            stderr: run.stderr,
+            code,
+          }
+        : null,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [run],
   );
 
   const onRun = useCallback(async () => {
     if (!problem || busy) return;
     setBusy(true);
     setError(null);
+    setNotGradeable(null);
     try {
       const r = await api<RunResponse>("/api/run", {
         method: "POST",
@@ -340,7 +448,16 @@ function ProblemView({ slug, onBack }: { slug: string; onBack: () => void }) {
       });
       setAttempt(a);
     } catch (e) {
-      setError(String(e));
+      // A 422 from /api/run is a statement about the problem, not about the student's code:
+      // either it is a design problem or its examples are in a layout the parser cannot
+      // read. Both are rendered as an explanation panel; a red failure would blame the
+      // student for a limitation of the runner.
+      if (e instanceof ApiError && e.status === 422 && e.body && typeof e.body === "object") {
+        const b = e.body as { designProblem?: boolean; className?: string; error?: string };
+        setNotGradeable({ message: b.error ?? e.message, className: b.className ?? null });
+      } else {
+        setError(String(e));
+      }
     } finally {
       setBusy(false);
     }
@@ -377,20 +494,36 @@ function ProblemView({ slug, onBack }: { slug: string; onBack: () => void }) {
             <h1 style={{ margin: 0 }}>{problem.title}</h1>
             <span className={`badge ${problem.difficulty}`}>{problem.difficulty}</span>
           </div>
-          <span className="muted small">
-            {problem.card ? `last reviewed ${new Date(problem.card.due).toLocaleDateString()}` : "new"}
-          </span>
+          <div className="row">
+            <span className="muted small">
+              {problem.card ? `last reviewed ${new Date(problem.card.due).toLocaleDateString()}` : "new"}
+            </span>
+            <Stopwatch
+              startedAt={startedAt.current}
+              limitSeconds={problem.gradeLimitSeconds}
+              hintsUsed={hintsUsed}
+              visible={showTimer}
+              onToggle={setShowTimer}
+            />
+          </div>
         </div>
 
         <div className="workspace">
-          <div>
+          <div className="pane">
             <div className="card statement">
-              <Statement md={problem.statementMd} />
+              {problem.premiumLocked ? (
+                <PremiumStatement
+                  slug={problem.slug}
+                  onSaved={() => void loadProblem({ resetTimers: false })}
+                />
+              ) : (
+                <Markdown md={problem.statementMd} />
+              )}
             </div>
 
             {problem.hints.length > 0 ? (
-              <div style={{ marginTop: 14 }}>
-                <h2>Hints ({problem.hints.length})</h2>
+              <div style={{ marginTop: 22 }}>
+                <h2 style={{ marginTop: 0 }}>Hints ({problem.hints.length})</h2>
                 {problem.hints.map((h, i) => (
                   <details
                     key={i}
@@ -401,7 +534,7 @@ function ProblemView({ slug, onBack }: { slug: string; onBack: () => void }) {
                   >
                     <summary>Hint {i + 1}</summary>
                     <div style={{ marginTop: 6 }}>
-                      <Statement md={h} />
+                      <Markdown md={h} />
                     </div>
                   </details>
                 ))}
@@ -409,8 +542,16 @@ function ProblemView({ slug, onBack }: { slug: string; onBack: () => void }) {
             ) : null}
           </div>
 
-          <div>
-            <CodeEditor value={code} onChange={setCode} onRun={() => void onRun()} />
+          <div className="pane">
+            <CodeEditor
+              value={code}
+              onChange={setCode}
+              onRun={() => void onRun()}
+              language={language}
+              assist={assist}
+              focus={focus}
+              onFocusClear={() => setFocus((f) => (f ? null : f))}
+            />
 
             <div className="row" style={{ marginTop: 10 }}>
               <button className="primary" onClick={() => void onRun()} disabled={busy}>
@@ -433,8 +574,19 @@ function ProblemView({ slug, onBack }: { slug: string; onBack: () => void }) {
               {hintsUsed > 0 ? <span className="muted small">hints opened: {hintsUsed}</span> : null}
             </div>
 
-            {problem.parseWarning ? (
+            <AssistPicker value={assist} onChange={setAssist} language={language} />
+
+            {problem.parseWarning && !(problem.hasSuite && language === "python3") ? (
               <div className="notice warn" style={{ marginTop: 12 }}>{problem.parseWarning}</div>
+            ) : null}
+
+            {notGradeable ? (
+              <div className="notice warn" style={{ marginTop: 12 }}>
+                <strong style={{ display: "block", marginBottom: 4 }}>
+                  {notGradeable.className ? "Design problem — not graded here" : "Cannot be graded here"}
+                </strong>
+                {notGradeable.message}
+              </div>
             ) : null}
 
             {run ? (
@@ -457,48 +609,27 @@ function ProblemView({ slug, onBack }: { slug: string; onBack: () => void }) {
                 ) : null}
 
                 {run.stderr ? (
-                  <pre className="notice bad" style={{ marginTop: 10, whiteSpace: "pre-wrap" }}>{run.stderr}</pre>
+                  <pre className="notice bad" style={{ marginTop: 10 }}>{run.stderr}</pre>
                 ) : null}
-
-                <div className="results">
-                  {run.cases.map((c) => (
-                    <div key={c.index} className={`case ${c.pass ? "pass" : "fail"}`}>
-                      <span>{c.pass ? "PASS" : "FAIL"}</span>
-                      <span className="vals">
-                        {c.error ? (
-                          <span style={{ color: "var(--bad)" }}>{c.error}</span>
-                        ) : (
-                          <>
-                            in {JSON.stringify(c.args)} → got {JSON.stringify(c.got)}
-                            {!c.pass ? <> · expected {JSON.stringify(c.expected)}</> : null}
-                          </>
-                        )}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="notice warn" style={{ marginTop: 12 }}>{run.disclaimer}</div>
               </div>
+            ) : null}
+
+            {/* Outside the `run` branch: the examples are part of the problem, so the
+                Testcase tab is populated before anything has been run. */}
+            <CaseTabs examples={problem.testCases} run={run} params={problem.meta.params} />
+
+            {run ? (
+              <div className="notice warn" style={{ marginTop: 12 }}>{run.disclaimer}</div>
             ) : null}
 
             <div style={{ marginTop: 18 }}>
               <TutorPanel
                 slug={problem.slug}
-                lastRun={
-                  run
-                    ? {
-                        passed: run.accepted,
-                        testsPassed: run.passed,
-                        testsTotal: run.total,
-                        stderr: run.stderr,
-                        code,
-                      }
-                    : null
-                }
+                lastRun={lastRunForTutor}
                 onUnlocked={() => {
                   setHintsUsed((n) => Math.max(n, problem.hints.length));
                 }}
+                onFocus={setFocus}
               />
             </div>
           </div>
@@ -509,99 +640,82 @@ function ProblemView({ slug, onBack }: { slug: string; onBack: () => void }) {
 }
 
 /**
- * Minimal markdown renderer: paragraphs, lists, fenced code, inline code, bold/italic.
- * Hand-rolled rather than pulling a dependency — statements use a small, fixed subset.
+ * The statement panel for a LeetCode Premium problem.
+ *
+ * Premium problems return `content: null` unauthenticated, so there is no fetch that
+ * recovers the prose. What IS returned is `exampleTestcases` and `metaData`, and 375
+ * Premium problems already have imported suites — so the grader works, and only the
+ * statement is missing. The panel says exactly that rather than reporting an error, links
+ * out, and offers to store a pasted copy.
  */
-function Statement({ md }: { md: string }) {
-  const blocks = useMemo(() => {
-    const out: Array<{ kind: "p" | "ul" | "pre"; content: string }> = [];
-    const lines = md.split("\n");
-    let buf: string[] = [];
-    let list: string[] = [];
-    let pre: string[] = [];
-    let inPre = false;
+function PremiumStatement({ slug, onSaved }: { slug: string; onSaved: () => void }) {
+  const [draft, setDraft] = useState("");
+  const [editing, setEditing] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
 
-    const flushP = () => {
-      if (buf.length) {
-        out.push({ kind: "p", content: buf.join(" ") });
-        buf = [];
-      }
-    };
-    const flushList = () => {
-      if (list.length) {
-        out.push({ kind: "ul", content: list.join("\n") });
-        list = [];
-      }
-    };
+  const url = `https://leetcode.com/problems/${slug}/`;
 
-    for (const line of lines) {
-      if (line.trim().startsWith("```")) {
-        if (inPre) {
-          out.push({ kind: "pre", content: pre.join("\n") });
-          pre = [];
-          inPre = false;
-        } else {
-          flushP();
-          flushList();
-          inPre = true;
-        }
-        continue;
-      }
-      if (inPre) {
-        pre.push(line);
-        continue;
-      }
-      if (line.trim().startsWith("- ")) {
-        flushP();
-        list.push(line.trim().slice(2));
-        continue;
-      }
-      if (line.trim() === "") {
-        flushP();
-        flushList();
-        continue;
-      }
-      flushList();
-      buf.push(line.trim());
+  const save = useCallback(async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await api(`/api/problems/${slug}/statement`, {
+        method: "POST",
+        body: JSON.stringify({ statementMd: draft }),
+      });
+      setSaved(true);
+      setEditing(false);
+      onSaved();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
     }
-    flushP();
-    flushList();
-    if (pre.length) out.push({ kind: "pre", content: pre.join("\n") });
-    return out;
-  }, [md]);
+  }, [slug, draft, onSaved]);
 
   return (
     <div>
-      {blocks.map((b, i) => {
-        if (b.kind === "pre") {
-          return (
-            <pre key={i}>
-              <code>{b.content}</code>
-            </pre>
-          );
-        }
-        if (b.kind === "ul") {
-          return (
-            <ul key={i}>
-              {b.content.split("\n").map((li, j) => (
-                <li key={j}>{inline(li)}</li>
-              ))}
-            </ul>
-          );
-        }
-        return <p key={i}>{inline(b.content)}</p>;
-      })}
+      <div className="notice warn">
+        This is a LeetCode Premium problem, so its statement is not available without a
+        subscription. The test suite for it <em>is</em> available — the runner grades it
+        normally, including the examples below.
+      </div>
+
+      <p>
+        <a href={url} target="_blank" rel="noreferrer noopener">
+          Open {slug} on leetcode.com
+        </a>
+      </p>
+
+      {saved ? (
+        <div className="notice info">Statement saved.</div>
+      ) : null}
+
+      {editing ? (
+        <>
+          <textarea
+            rows={12}
+            placeholder="Paste the problem statement here…"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            style={{ width: "100%" }}
+          />
+          <div className="row" style={{ marginTop: 8 }}>
+            <button className="primary" disabled={busy || draft.trim().length === 0} onClick={() => void save()}>
+              {busy ? "Saving…" : "Save statement"}
+            </button>
+            <button onClick={() => setEditing(false)} disabled={busy}>
+              Cancel
+            </button>
+          </div>
+        </>
+      ) : (
+        <button onClick={() => setEditing(true)}>Paste the statement</button>
+      )}
+
+      {error ? <div className="notice bad" style={{ marginTop: 10 }}>{error}</div> : null}
     </div>
   );
-}
-
-function inline(text: string) {
-  // Bold before italic: the italic pattern must not consume the inner span of `**bold**`.
-  const parts = text.split(/(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*)/g).filter((p) => p.length > 0);
-  return parts.map((p, i) => {
-    if (p.startsWith("`") && p.endsWith("`")) return <code key={i}>{p.slice(1, -1)}</code>;
-    if (p.startsWith("**") && p.endsWith("**")) return <strong key={i}>{p.slice(2, -2)}</strong>;
-    if (p.startsWith("*") && p.endsWith("*")) return <em key={i}>{p.slice(1, -1)}</em>;
-    return <span key={i}>{p}</span>;
-  });
 }

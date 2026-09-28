@@ -134,7 +134,13 @@ export function buildTestCases(args: {
     return {
       meta,
       cases: [],
-      parseWarning: `found ${groups.length} input groups but only ${outputs.length} Output lines — cannot grade reliably`,
+      // The old message ("found 2 input groups but only 0 Output lines — cannot grade
+      // reliably") was accurate but described the symptom. This names the cause and what
+      // the runner does instead, because the student sees this text and cannot act on the
+      // symptom. The counts stay for diagnosis.
+      parseWarning:
+        `This problem's examples are not in the standard "Input:/Output:" layout, so they cannot be ` +
+        `auto-graded (found ${groups.length} input groups, ${outputs.length} output lines).`,
     };
   }
 

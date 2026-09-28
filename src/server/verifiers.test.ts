@@ -155,3 +155,50 @@ describe("parseValue", () => {
     expect(parseValue("'abc'")).toBe("abc");
   });
 });
+
+describe("prepareSuite — case indices must match the harness's own numbering", () => {
+  const meta = {
+    name: "twoSum",
+    params: [
+      { name: "nums", type: "integer[]" },
+      { name: "target", type: "integer" },
+    ],
+    return: { type: "integer[]" },
+  };
+
+  test("indices are the position in the FILTERED payload, not the original suite", () => {
+    // A skipped case shifts everything after it. When `index` kept the original suite position,
+    // the harness enumerated its payload from 0 while the lookup map was keyed by the original
+    // index, so a suite whose first case was skipped reported "no result returned" for every
+    // case after it — measured as a correct Python solution scoring 5/72 on `two-sum`.
+    const io = JSON.stringify([
+      { input: "nums = [1], target = 1", output: "Error: poisoned" },
+      { input: "nums = [2,7], target = 9", output: "[0,1]" },
+      { input: "nums = [3,3], target = 6", output: "[0,1]" },
+    ]);
+    const s = prepareSuite("two-sum", io, meta);
+    expect(s.cases).toHaveLength(2);
+    expect(s.cases.map((c) => c.index)).toEqual([0, 1]);
+  });
+
+  test("null-expected cases are dropped, because only Python can return null", () => {
+    // 2,357 cases across 68 problems expect None/null. A correct JavaScript solution scored
+    // 72/80 on `two-sum` with every failure being one of these — JS returns `undefined`, Go/Java/
+    // C++ return an empty array, and none of those is comparable to null.
+    const io = JSON.stringify([
+      { input: "nums = [2,7], target = 9", output: "[0,1]" },
+      { input: "nums = [1,2], target = 4", output: "None" },
+    ]);
+    const s = prepareSuite("two-sum", io, meta);
+    expect(s.cases).toHaveLength(1);
+    expect(s.skipped).toBe(1);
+    expect(s.skipReasons[0]).toMatch(/expects null/);
+  });
+
+  test("a void entry point keeps its null cases, because there null is the real answer", () => {
+    const voidMeta = { name: "mutate", params: [{ name: "nums", type: "integer[]" }], return: { type: "void" } };
+    const io = JSON.stringify([{ input: "nums = [1]", output: "None" }]);
+    const s = prepareSuite("some-void-problem", io, voidMeta);
+    expect(s.cases).toHaveLength(1);
+  });
+});

@@ -157,12 +157,12 @@ export function MasteryView() {
                     <span className={`state-tag ${b.className}`}> · {b.label}</span>
                   </span>
                   <Graticule elo={p.elo} />
-                  <span className="mono">{Math.round(p.elo)}</span>
-                  <span className="mono">
+                  <span className="mono" data-label="elo">{Math.round(p.elo)}</span>
+                  <span className="mono" data-label="solved">
                     {p.solved}/{p.attempts}
                   </span>
-                  <span className="mono">{(p.hintRate * 100).toFixed(0)}%</span>
-                  <span className="mono">{p.lapses > 0 ? p.lapses : "—"}</span>
+                  <span className="mono" data-label="hints">{(p.hintRate * 100).toFixed(0)}%</span>
+                  <span className="mono" data-label="lapses">{p.lapses > 0 ? p.lapses : "—"}</span>
                 </div>
               );
             })}
@@ -188,10 +188,10 @@ export function MasteryView() {
             {hintDependence.map((h) => (
               <div key={h.pattern} className="tr hintdep">
                 <span>{h.pattern}</span>
-                <span className="mono">{h.totalAttempts}</span>
-                <span className="mono">{h.attemptsWithHints}</span>
-                <span className="mono">{h.unaidedSolves}</span>
-                <span className="mono">{(h.hintRate * 100).toFixed(0)}%</span>
+                <span className="mono" data-label="attempts">{h.totalAttempts}</span>
+                <span className="mono" data-label="hinted">{h.attemptsWithHints}</span>
+                <span className="mono" data-label="unaided">{h.unaidedSolves}</span>
+                <span className="mono" data-label="rate">{(h.hintRate * 100).toFixed(0)}%</span>
               </div>
             ))}
           </div>

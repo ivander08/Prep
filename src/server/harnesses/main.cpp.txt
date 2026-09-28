@@ -41,14 +41,98 @@ static string trim(const string& s) {
   return a == string::npos ? "" : s.substr(a, b - a + 1);
 }
 
+// Escape a string for embedding inside a JSON string literal.
+//
+// The harness builds its output line by concatenation, and a string argument arrives
+// JSON-encoded, so it always contains quotes. Emitted raw, they terminated the JSON string
+// early and the whole run was reported as "harness emitted non-JSON" instead of as a case
+// result — a passing case and a crashing one looked identical. Control characters become
+// spaces for the same reason they do in the Java harness: a raw control byte is not valid
+// inside a JSON string.
+//
+// Character codes rather than backslash literals throughout: a literal must survive this
+// file's own escaping layers, and that has broken before. Numbers have nothing to escape.
+static string jsonEscape(const string& s) {
+  string out;
+  out.reserve(s.size() + 8);
+  for (unsigned char c : s) {
+    if (c == 92) { out += (char)92; out += (char)92; }
+    else if (c == 34) { out += (char)92; out += (char)34; }
+    else if (c < 32) out += (char)32;
+    else out += (char)c;
+  }
+  return out;
+}
+
+// Decode the escape sequences inside a JSON string literal.
+//
+// A string argument arrives JSON-encoded, so a tab is still the two characters `\` `t` when
+// it reaches the harness. Undecoded, the value differs from the caller's by its escapes:
+// visible as a literal backslash in the output, and a silently wrong answer for a concept
+// such as `normalizeSpaces`, which is entirely about whitespace. Python, JavaScript and Go
+// all decode this for free; C++ is the only one that has to do it by hand.
+static string jsonUnescape(const string& s) {
+  string out;
+  out.reserve(s.size());
+  for (size_t i = 0; i < s.size(); i++) {
+    if (s[i] != (char)92 || i + 1 >= s.size()) { out += s[i]; continue; }
+    char e = s[++i];
+    switch (e) {
+      case 'n': out += (char)10; break;
+      case 't': out += (char)9; break;
+      case 'r': out += (char)13; break;
+      case 'b': out += (char)8; break;
+      case 'f': out += (char)12; break;
+      case '/': out += (char)47; break;
+      case '"': out += (char)34; break;
+      case 92: out += (char)92; break;
+      case 'u': {
+        if (i + 4 < s.size()) {
+          int cp = (int)strtol(s.substr(i + 1, 4).c_str(), nullptr, 16);
+          i += 4;
+          if (cp < 0x80) {
+            out += (char)cp;
+          } else if (cp < 0x800) {
+            out += (char)(0xC0 | (cp >> 6));
+            out += (char)(0x80 | (cp & 0x3F));
+          } else {
+            out += (char)(0xE0 | (cp >> 12));
+            out += (char)(0x80 | ((cp >> 6) & 0x3F));
+            out += (char)(0x80 | (cp & 0x3F));
+          }
+        }
+        break;
+      }
+      default: out += e; break;
+    }
+  }
+  return out;
+}
+
+// Strip the surrounding quotes from a JSON string literal, and decode its escapes.
+//
+// A scalar string argument is JSON-encoded in the payload, so it arrives as `"()"` and the
+// quotes are part of the transport, not the value. Without this the parameter is two
+// characters longer than the caller intended, and every string argument is wrong by two.
+static string unquote(const string& s) {
+  string t = trim(s);
+  if (t.size() >= 2 && t.front() == '"' && t.back() == '"') return jsonUnescape(t.substr(1, t.size() - 2));
+  return t;
+}
+
 // Split a bracketed list into top-level elements, respecting nesting and quotes.
 static vector<string> splitTop(const string& s) {
   vector<string> out;
   int depth = 0;
   bool inStr = false;
+  bool esc = false;
   size_t start = 0;
   for (size_t i = 0; i < s.size(); i++) {
     char c = s[i];
+    // A backslash escapes the next character. Without this, `"a\"b"` toggled inStr twice and
+    // the following comma was treated as string content, merging two arguments into one.
+    if (esc) { esc = false; continue; }
+    if (c == '\\') { esc = true; continue; }
     if (c == '"') inStr = !inStr;
     else if (!inStr && (c == '[' || c == '{')) depth++;
     else if (!inStr && (c == ']' || c == '}')) depth--;
@@ -128,25 +212,77 @@ static vector<string> toStrVec(const string& s) {
   vector<string> out;
   for (auto& x : splitTop(t)) {
     string v = trim(x);
-    if (v.size() >= 2 && v.front() == '"') v = v.substr(1, v.size() - 2);
+    if (v.size() >= 2 && v.front() == '"') v = jsonUnescape(v.substr(1, v.size() - 2));
     out.push_back(v);
   }
   return out;
 }
 
+// A quoted, escaped JSON string: the value form, not the transport form.
+//
+// `jsonEscape` deliberately escapes without adding quotes, because it is also used on the
+// `args`/`expected` fields, which are JSON strings whose quotes the emit site already
+// writes. `got`, by contrast, is emitted as a bare JSON VALUE — so a returned string needs
+// its own quotes, and the quotes must not also come from the surrounding literal.
+static string jsonString(const string& s) {
+  string out;
+  out.reserve(s.size() + 2);
+  out += (char)34;
+  out += jsonEscape(s);
+  out += (char)34;
+  return out;
+}
+
+// A JSON array of numbers. Already valid JSON on its own, so the emit site splices it bare.
 static string renderInts(const vector<int>& v) {
   string o = "[";
   for (size_t i = 0; i < v.size(); i++) { if (i) o += ","; o += to_string(v[i]); }
   return o + "]";
 }
 
+// A JSON array of strings. Each element is a JSON string, not a flat-encoded token: a
+// returned element containing a quote, backslash or control character must stay valid JSON,
+// or the whole run is rejected as "harness emitted non-JSON".
 static string renderStrings(const vector<string>& v) {
   string o = "[";
-  for (size_t i = 0; i < v.size(); i++) { if (i) o += ","; o += "\"" + v[i] + "\""; }
+  for (size_t i = 0; i < v.size(); i++) { if (i) o += ","; o += jsonString(v[i]); }
   return o + "]";
 }
 
 static bool sameInts(vector<int> a, vector<int> b) {
+  sort(a.begin(), a.end());
+  sort(b.begin(), b.end());
+  return a == b;
+}
+
+// Nested string arrays, for `list<list<string>>` returns (group-anagrams). Without these the
+// whole problem fell into the "unsupported signature" branch in every C++ submission.
+static vector<vector<string>> toStrVec2(const string& s) {
+  string t = trim(s);
+  if (!t.empty() && t.front() == '[') t = t.substr(1, t.size() - 2);
+  vector<vector<string>> out;
+  for (auto& x : splitTop(t)) out.push_back(toStrVec(trim(x)));
+  return out;
+}
+
+static string renderStrVec2(const vector<vector<string>>& v) {
+  string o = "[";
+  for (size_t i = 0; i < v.size(); i++) { if (i) o += ","; o += renderStrings(v[i]); }
+  return o + "]";
+}
+
+/**
+ * Order-free comparison of two nested string arrays.
+ *
+ * The expected value comes from the dataset, whose own reference solution ordered its groups
+ * differently from the user's — that is exactly the false rejection `verifiers.ts` exists to
+ * prevent on the TypeScript side. Both the outer groups and the inner members are compared as
+ * multisets, because `group-anagrams` accepts any ordering at both levels.
+ */
+static bool sameStrVec2(vector<vector<string>> a, vector<vector<string>> b) {
+  if (a.size() != b.size()) return false;
+  for (auto& g : a) sort(g.begin(), g.end());
+  for (auto& g : b) sort(g.begin(), g.end());
   sort(a.begin(), a.end());
   sort(b.begin(), b.end());
   return a == b;
@@ -164,11 +300,11 @@ int main() {
   cout << "{\"cases\":[";
   for (size_t i = 0; i < cases.size(); i++) {
     if (i) cout << ",";
-    cout << "{\"index\":" << i << ",\"args\":\"" << cases[i].args << "\",\"expected\":\"" << cases[i].expected << "\"";
+    cout << "{\"index\":" << i << ",\"args\":\"" << mini::jsonEscape(cases[i].args) << "\",\"expected\":\"" << mini::jsonEscape(cases[i].expected) << "\"";
     try {
 __HARNESS_BODY__
     } catch (const exception& e) {
-      cout << ",\"got\":null,\"pass\":false,\"error\":\"" << e.what() << "\"";
+      cout << ",\"got\":null,\"pass\":false,\"error\":\"" << mini::jsonEscape(e.what()) << "\"";
     }
     cout << "}";
   }

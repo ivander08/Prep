@@ -21,7 +21,7 @@
 import { db } from "../db.ts";
 import { chat, structured, KenariError, type CallMeta, type ChatMessage, type ToolDef } from "./client.ts";
 import { hintCeiling, ceilingReason, HINT_RULES, LEVEL_LABEL } from "./policy.ts";
-import { detectViolations, type Turn, type Violation } from "./detector.ts";
+import { detectViolations, type FocusEntry, type Turn, type Violation } from "./detector.ts";
 
 export type TutorTurnResult = {
   level: number;
@@ -29,6 +29,8 @@ export type TutorTurnResult = {
   reason: string;
   message: string;
   nextQuestion: string;
+  /** Regions of the student's own code this hint points at, if any. */
+  focus: FocusEntry[];
   refused: boolean;
   rejectionNote: string | null;
   model: string;
@@ -65,6 +67,32 @@ const TURN_TOOL: ToolDef = {
           type: "string",
           description: "One question that hands the next step back to the student.",
         },
+        // Deliberately NOT in `required`. A missing `focus` is normal (approach-level hints
+        // have no line to point at), and putting it in `required` would make every such turn
+        // trigger the validate/repair retry — burning a second call to add an empty array.
+        focus: {
+          type: "array",
+          maxItems: 3,
+          description:
+            "Regions of the STUDENT'S OWN CODE this hint refers to. Omit if the hint is about approach rather than a specific line. Never invent code that is not in the student's code.",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: ["quote", "why"],
+            properties: {
+              quote: {
+                type: "string",
+                description:
+                  "A verbatim contiguous substring copied from the student's code. Must appear exactly once.",
+              },
+              why: {
+                type: "string",
+                description:
+                  "At most 8 words naming what to look at, e.g. 'loop bound excludes the last index'.",
+              },
+            },
+          },
+        },
       },
     },
   },
@@ -92,8 +120,31 @@ function validateTurn(value: unknown): { ok: true; value: Turn } | { ok: false; 
       contains_solution: v.contains_solution as boolean,
       contains_real_code: v.contains_real_code as boolean,
       next_question: (v.next_question as string).trim(),
+      // Filtered, not validated. A malformed entry is dropped rather than triggering the
+      // repair retry: `focus` is a nicety, and failing a whole turn over it would cost the
+      // student a second model call to fix something they may not even need.
+      focus: parseFocus(v.focus),
     },
   };
+}
+
+/**
+ * Keep only well-shaped focus entries.
+ *
+ * A quote with no `why` would produce a highlight with nothing to say, and a non-string
+ * quote cannot be located in the document — both are dropped.
+ */
+export function parseFocus(raw: unknown): FocusEntry[] {
+  if (!Array.isArray(raw)) return [];
+  const out: FocusEntry[] = [];
+  for (const item of raw.slice(0, 3)) {
+    if (typeof item !== "object" || item === null) continue;
+    const e = item as Record<string, unknown>;
+    if (typeof e.quote !== "string" || e.quote.length === 0) continue;
+    if (typeof e.why !== "string" || e.why.trim().length === 0) continue;
+    out.push({ quote: e.quote, why: e.why.trim() });
+  }
+  return out;
 }
 
 type AttemptState = { attempts: number; minutes: number; solutionUnlocked: boolean; code: string };
@@ -141,7 +192,18 @@ function buildMessages(args: {
     "- Never reveal an editorial solution, even one you know from training.",
     "- Be concise. Two or three short paragraphs at most.",
     "- Always end by handing the next step back with a question.",
-  ].join("\n");
+  ];
+
+  // Only meaningful when there is code to point at and the ceiling is high enough that
+  // naming a specific line is not itself a giveaway. Not offered at H6, where the point is
+  // the answer rather than the student's line.
+  const canFocus = args.ceiling >= 2 && args.ceiling < 6 && args.code.trim().length > 0;
+  if (canFocus) {
+    system.push(
+      "- If you refer to a specific line of the student's code, set `focus` with the exact quote. " +
+        "Do not repeat the quote in `message`.",
+    );
+  }
 
   const parts = [
     `# Problem: ${args.title} (${args.difficulty})`,
@@ -154,13 +216,22 @@ function buildMessages(args: {
   }
 
   if (args.code.trim().length > 0) {
-    parts.push("", "# The student's current code", "```", args.code.trim(), "```");
+    // Numbered so "line 4" is unambiguous, and so the model can quote a line exactly instead
+    // of reconstructing it. The numbers are a prompt aid only — `focus.quote` is still a
+    // verbatim substring, because the numbering the model reads is not the numbering the
+    // editor shows once the student keeps typing.
+    const numbered = args.code
+      .trim()
+      .split("\n")
+      .map((line, i) => `${String(i + 1).padStart(3)} | ${line}`)
+      .join("\n");
+    parts.push("", "# The student's current code", "```", numbered, "```");
   }
 
   const user = parts.join("\n");
 
   return [
-    { role: "system", content: system },
+    { role: "system", content: system.join("\n") },
     { role: "user", content: user },
     { role: "user", content: `Student says: ${args.studentMessage || "(no message — they just opened the tutor)"}` },
   ];
@@ -288,6 +359,7 @@ export async function tutorTurn(args: {
         `rather than risk handing you the answer. Try asking something more specific, or work a little further ` +
         `and come back — the ceiling rises with attempts and time.`,
       nextQuestion: "What have you tried so far, and where exactly are you stuck?",
+      focus: [],
       refused: true,
       rejectionNote,
       model: meta.model,
@@ -302,12 +374,35 @@ export async function tutorTurn(args: {
     reason,
     message: turn.message,
     nextQuestion: turn.next_question,
+    focus: emitFocus(turn.focus, ceiling, state.code),
     refused: false,
     rejectionNote,
     model: meta.model,
     costIdr: meta.cost.idr,
     repaired: meta.repaired,
   };
+}
+
+/**
+ * Whether to attach code focus at all.
+ *
+ * Gated here rather than in the UI because the ceiling is server state the client must not
+ * be able to argue with. Three exclusions, each for a different reason:
+ *
+ *   ceiling < 2  — there is nothing specific to point at yet, and a highlight asserts a
+ *                  precision the hint does not have.
+ *   ceiling >= 6 — the point is the answer, not the student's line.
+ *   no code      — a quote can only come from the student's own code, so there is nothing
+ *                  to point at (and the prompt never offered the option).
+ *
+ * A model that ignores the field simply produces no highlight; this degrades to "no
+ * highlight" rather than erroring.
+ */
+function emitFocus(focus: FocusEntry[] | undefined, ceiling: number, code: string): FocusEntry[] {
+  if (!focus || focus.length === 0) return [];
+  if (ceiling < 2 || ceiling >= 6) return [];
+  if (code.trim().length === 0) return [];
+  return focus;
 }
 
 /**

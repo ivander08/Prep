@@ -1,0 +1,11 @@
+-- A user-supplied statement for a LeetCode Premium problem.
+--
+-- Premium problems return `content: null` and `codeSnippets: null` unauthenticated, so the
+-- statement is unavailable no matter how the request is made. Everything else the grader
+-- needs (exampleTestcases, metaData) IS returned, and 375 premium problems already have
+-- full suites imported — so the only missing piece is the prose.
+--
+-- `statement_source` records where the prose came from: 'leetcode' for a fetch, 'manual' for
+-- something the user pasted. Without it a later fetch would overwrite what the user wrote,
+-- and there is no way to tell the two apart from `statement_md` alone.
+ALTER TABLE problems ADD COLUMN statement_source TEXT;

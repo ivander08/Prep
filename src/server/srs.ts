@@ -40,6 +40,14 @@ export const SCHEDULER = fsrs(
 );
 
 /**
+ * The unaided time limit that separates Easy from Good.
+ *
+ * Exported because the attempt stopwatch displays the same boundary. Two literals would
+ * drift: changing this one would leave the UI showing a threshold the grader no longer uses.
+ */
+export const GRADE_LIMIT_SECONDS = 20 * 60;
+
+/**
  * Derive the FSRS grade from observed behaviour. Never asked, never self-reported.
  *
  * The `limitSeconds` threshold is what separates Easy from Good: passing unaided but
@@ -54,7 +62,7 @@ export function gradeAttempt(a: {
 }): Grade {
   if (!a.passed || a.solutionUnlocked) return Rating.Again; // 1
   if (a.hintsUsed > 0) return Rating.Hard; // 2
-  if (a.seconds > (a.limitSeconds ?? 20 * 60)) return Rating.Good; // 3
+  if (a.seconds > (a.limitSeconds ?? GRADE_LIMIT_SECONDS)) return Rating.Good; // 3
   return Rating.Easy; // 4
 }
 
@@ -123,6 +131,81 @@ export function reviewCard(qid: number, grade: Grade, now = new Date()): { due: 
       next.difficulty,
       next.elapsed_days,
       next.scheduled_days,
+      next.reps,
+      next.lapses,
+      next.state as number,
+      now.toISOString(),
+    ],
+  );
+
+  return { due: next.due, intervalDays: next.scheduled_days };
+}
+
+/**
+ * Record a review for a non-DSA item and persist the new schedule.
+ *
+ * `reviewCard` is hardcoded to the `cards` table keyed by `qid`; a concept lives in `items`
+ * and is keyed by `item_id`, so it needs its own path. Same scheduler, same behavioural
+ * grade — only the table differs.
+ *
+ * `item_cards` has no `elapsed_days` or `scheduled_days` columns, so only the columns it
+ * does have are persisted. ts-fsrs still needs those two fields on the in-memory Card to
+ * compute the next interval, so they are reconstructed from `last_review`/`due` on read and
+ * dropped on write.
+ */
+export function reviewItem(itemId: number, grade: Grade, now = new Date()): { due: Date; intervalDays: number } {
+  const row = db
+    .query<
+      {
+        item_id: number;
+        due: string;
+        stability: number | null;
+        difficulty: number | null;
+        reps: number;
+        lapses: number;
+        state: number;
+        last_review: string | null;
+      },
+      [number]
+    >(
+      `SELECT item_id, due, stability, difficulty, reps, lapses, state, last_review
+       FROM item_cards WHERE item_id = ?`,
+    )
+    .get(itemId);
+
+  let card: Card;
+  if (row) {
+    const base = createEmptyCard(new Date(row.due));
+    card = {
+      ...base,
+      due: new Date(row.due),
+      stability: row.stability ?? 0,
+      difficulty: row.difficulty ?? 0,
+      elapsed_days: 0,
+      scheduled_days: 0,
+      reps: row.reps,
+      lapses: row.lapses,
+      state: row.state as State,
+      last_review: row.last_review ? new Date(row.last_review) : undefined,
+    } as Card;
+  } else {
+    card = createEmptyCard(now);
+  }
+
+  const next = SCHEDULER.repeat(card, now)[grade].card;
+
+  db.run(
+    `INSERT INTO item_cards (item_id, due, stability, difficulty, reps, lapses, state, last_review)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(item_id) DO UPDATE SET
+       due = excluded.due, stability = excluded.stability, difficulty = excluded.difficulty,
+       reps = excluded.reps, lapses = excluded.lapses, state = excluded.state,
+       last_review = excluded.last_review`,
+    [
+      itemId,
+      next.due.toISOString(),
+      next.stability,
+      next.difficulty,
       next.reps,
       next.lapses,
       next.state as number,

@@ -43,6 +43,11 @@
   --pass: #7fb069;
   --fail: #d96c5f;
   --hold: #6f93b8;
+  /* Used by `.locked` and `.notice.warn`. It was referenced in both places but never
+     defined, so those elements silently inherited their parent colour — the Premium count
+     rendered as the faintest text on the page, next to the percentage it was meant to be
+     distinguishable from. */
+  --warn: #c9a856;
 
   /* Difficulty reads as a measurement scale, so it reuses the same states. */
   --easy: var(--pass);
@@ -57,6 +62,33 @@
 }
 
 * { box-sizing: border-box; }
+
+/* --- Scrollbars ------------------------------------------------------------
+   The native scrollbar is the one piece of the window that does not belong to the palette:
+   light grey, rounded, and high-contrast against a graphite background.
+
+   The `@supports` guard is load-bearing, not decoration. Chromium DISABLES
+   `::-webkit-scrollbar` entirely as soon as `scrollbar-width` or `scrollbar-color` is set on
+   the element, silently falling back to the native 17px bar. Declaring both unconditionally
+   therefore does not merge them — it discards the styled version. Measured in Edge: 17px
+   native with both, 12px styled with the guard.
+
+   So the standard properties are declared only where the pseudo-elements are unsupported
+   (Firefox), and the pseudo-elements carry Chromium. `scrollbar-color` inherits, but
+   `scrollbar-width` does not, which is why the guard targets `html` rather than relying on
+   inheritance into each scroller. */
+@supports not selector(::-webkit-scrollbar) {
+  html { scrollbar-width: thin; scrollbar-color: var(--rule-2) transparent; }
+}
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--rule-2);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--rule-hi); background-clip: padding-box; }
+::-webkit-scrollbar-corner { background: transparent; }
 
 html { background: var(--ink); }
 
@@ -299,6 +331,26 @@ h2 {
 .readout .v.fail { color: var(--fail); }
 .readout .unit { font-size: 11px; color: var(--faint); margin-left: 3px; }
 
+/* The attempt stopwatch. Tabular figures so the digits do not jitter as they change, and a
+   single amber state for "past the limit that separates Easy from Good". */
+.stopwatch {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  color: var(--text);
+  border: 1px solid var(--rule);
+  background: var(--panel);
+  padding: 3px 9px;
+  cursor: help;
+}
+.stopwatch .limit { color: var(--faint); }
+.stopwatch.over {
+  color: var(--signal);
+  border-color: var(--signal-dim);
+  background: var(--signal-glow);
+}
+.stopwatch.over .limit { color: var(--signal-dim); }
+
 /* --- Panels and rules ----------------------------------------------------- */
 
 .card {
@@ -316,9 +368,25 @@ h2 {
   font-size: 12.5px;
   background: var(--raise);
 }
-.notice.warn { border-left-color: var(--signal); color: #c9a856; }
+.notice.warn { border-left-color: var(--signal); color: var(--warn); }
 .notice.info { border-left-color: var(--hold); color: #8fa8c4; }
 .notice.bad { border-left-color: var(--fail); color: #d9877d; }
+
+/**
+ * Interpreter and compiler output must be able to break mid-token.
+ *
+ * `white-space: pre-wrap` alone only breaks at whitespace, and a Python traceback quotes the
+ * whole base64 payload it was fed — one 6,800-character token with no spaces in it. That
+ * pushed the document to 6806px wide on a 390px screen. `overflow-wrap: anywhere` lets the
+ * line break inside the token, and `overflow-x: auto` is the backstop for anything that still
+ * refuses to wrap.
+ */
+pre.notice {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  overflow-x: auto;
+  max-width: 100%;
+}
 
 .empty {
   padding: 44px 20px;
@@ -373,7 +441,7 @@ h2 {
    graticule, at a coarser resolution. */
 .progress-row {
   display: grid;
-  grid-template-columns: 150px 1fr 84px 48px;
+  grid-template-columns: 150px 1fr 84px 76px;
   gap: 14px;
   align-items: center;
   padding: 7px 12px;
@@ -385,7 +453,15 @@ h2 {
 .progress-row .track { height: 5px; background: var(--ink); border: 1px solid var(--rule); }
 .progress-row .fill { display: block; height: 100%; background: var(--signal-dim); }
 .progress-row .tally { text-align: right; color: var(--text); }
-.progress-row .pct { text-align: right; color: var(--faint); }
+/* Flex with a gap, not inline text: the locked count and the percentage were concatenated
+   into "16P0%", which reads as a number rather than two separate facts. */
+.progress-row .pct {
+  display: flex;
+  justify-content: flex-end;
+  align-items: baseline;
+  gap: 7px;
+  color: var(--faint);
+}
 
 /* Premium-only problems are counted, not hidden — a finished list should read as finished,
    and the reason it cannot be fully opened should be visible. */
@@ -428,18 +504,6 @@ h2 {
   cursor: pointer;
 }
 .field select:focus { outline: none; border-color: var(--signal-dim); }
-
-.suite-tag {
-  font-family: var(--din);
-  font-size: 8.5px;
-  font-weight: 700;
-  letter-spacing: 0.13em;
-  text-transform: uppercase;
-  color: var(--pass);
-  border: 1px solid #2f4430;
-  padding: 1px 5px;
-  cursor: help;
-}
 
 .lang-select {
   font-family: var(--mono);
@@ -502,7 +566,11 @@ h2 {
   display: grid;
   grid-template-columns: minmax(340px, 0.85fr) minmax(460px, 1.15fr);
   gap: 0;
-  align-items: start;
+  /* `stretch`, not `start`. The divider is the first column's `border-right`, so with `start`
+     it stopped at the bottom of the shorter column — a rule ending in mid-air whenever the
+     left pane was short (any problem with no hints). Stretching the panes lets the border
+     span the full row, which is what the divider is supposed to mean. */
+  align-items: stretch;
   border: 1px solid var(--rule);
   margin-top: 14px;
 }
@@ -515,7 +583,19 @@ h2 {
 
 .statement { max-height: 60vh; overflow-y: auto; padding-right: 6px; font-size: 13.5px; }
 .statement p { margin: 0 0 12px; }
-.statement pre {
+
+/**
+ * Fenced code scrolls horizontally wherever markdown is rendered.
+ *
+ * This was `.statement pre` only, and the fundamentals track renders concept prose through
+ * `.card` instead — so one long line in a concept's example block widened the entire page.
+ * On a 390px screen a single 485px code block made the document 525px wide and every view
+ * scrolled sideways. A code block is the one element whose width cannot be negotiated, so it
+ * gets its own scroll container. The statement is itself a `.card`, so this covers it too.
+ */
+.card pre,
+.hint pre,
+.tutor-log pre {
   background: var(--ink);
   border: 1px solid var(--rule);
   border-radius: 0;
@@ -524,6 +604,12 @@ h2 {
   font-family: var(--mono);
   font-size: 12px;
   line-height: 1.5;
+}
+/* Inline code can also be an unbreakable token; let it wrap rather than push the page. */
+.card code,
+.statement code,
+.hint code {
+  overflow-wrap: anywhere;
 }
 .statement code {
   font-family: var(--mono);
@@ -538,28 +624,151 @@ h2 {
 .statement strong { color: #e8edf3; font-weight: 600; }
 
 .editor-host { border: 1px solid var(--rule); border-radius: 0; overflow: hidden; }
-.editor-host .cm-editor { min-height: 300px; max-height: 50vh; }
+.editor-host .cm-editor { min-height: 240px; max-height: 40vh; }
 .editor-host .cm-scroller { font-family: var(--mono); font-size: 12.5px; line-height: 1.6; }
 .editor-host .cm-editor.cm-focused { outline: none; }
 
-/* --- Results -------------------------------------------------------------- */
+/* --- Case tabs -------------------------------------------------------------
+   One case at a time, LeetCode-style, rather than a stacked list. A suite runs up to 128
+   cases, so a flat list buries the failing one below a screenful of passes; the chips carry
+   the pass/fail marks so the pattern is still readable at a glance. */
 
-.results { margin-top: 12px; display: flex; flex-direction: column; }
+/* Tabs, not a box. The strip's rule plus the active tab's underline read as tabs on their
+   own, and dropping the outer border removes one of the three stacked full-width rectangles
+   in this pane (editor, cases, tutor) that made the column feel like nested frames. */
+.case-tabs { margin-top: 14px; }
 
-.case {
-  display: grid;
-  grid-template-columns: 46px 1fr;
-  gap: 10px;
-  padding: 6px 10px;
+.case-tab-strip {
+  display: flex;
   border-bottom: 1px solid var(--rule);
-  border-left: 2px solid transparent;
+}
+.case-tab {
+  border: none;
+  border-bottom: 2px solid transparent;
+  /* Overlaps the strip rule so the active tab's underline replaces it rather than drawing a
+     second line beneath. */
+  margin-bottom: -1px;
+  background: transparent;
+  color: var(--dim);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  padding: 8px 14px;
+}
+.case-tab:hover:not(:disabled) { color: var(--text); }
+.case-tab.active {
+  color: var(--text);
+  border-bottom-color: var(--signal);
+}
+.case-tab:disabled { opacity: 0.35; cursor: default; }
+
+.case-chips {
+  display: flex;
+  gap: 6px;
+  padding: 12px 0 0;
+  /* One row that scrolls horizontally, not a wrapping block. Wrapping 128 cases stacked ~13
+     rows and pushed the case being inspected off the bottom of the page — the thing this
+     redesign exists to prevent. A single strip is also what makes it read as tabs.
+     No `scrollbar-width` here: setting it would disable the styled scrollbar for this
+     element and bring back the native bar. */
+  overflow-x: auto;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 9px;
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  color: var(--dim);
+  border: 1px solid var(--rule-2);
+  background: var(--raise);
+  font-variant-numeric: tabular-nums;
+  flex: none;
+}
+.chip:hover:not(:disabled) { border-color: var(--rule-hi); }
+.chip.active {
+  color: var(--text);
+  border-color: var(--signal-dim);
+  background: var(--signal-glow);
+}
+/* A dot rather than colouring the whole chip: the label has to stay readable, and the
+   active chip is already carrying the amber. */
+.chip .dot {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  background: var(--faint);
+}
+.chip.pass .dot { background: var(--pass); }
+.chip.fail .dot { background: var(--fail); }
+.chip.active.pass { border-color: var(--pass); }
+.chip.active.fail { border-color: var(--fail); }
+
+.case-panel {
+  display: grid;
+  grid-template-columns: 62px 1fr;
+  gap: 8px 12px;
+  padding: 12px 0 0;
+  align-items: start;
+}
+.case-panel .k {
+  font-family: var(--din);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--faint);
+  padding-top: 8px;
+}
+/* Values are output, not inputs. They were bordered like form fields, which read as
+   editable and added two more rectangles to a pane that already has four. */
+.case-panel code {
   font-family: var(--mono);
   font-size: 11.5px;
-  color: var(--dim);
+  color: var(--text);
+  background: var(--raise);
+  padding: 6px 9px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 220px;
+  overflow: auto;
 }
-.case.pass { border-left-color: var(--pass); }
-.case.fail { border-left-color: var(--fail); }
-.case .vals { word-break: break-all; }
+.case-panel code.err { color: var(--fail); }
+
+/* --- Assist picker ---------------------------------------------------------
+   A segmented control rather than a <select>: three options that need to be comparable at a
+   glance, each with a label long enough that a dropdown would hide the difference. */
+
+.assist-picker { margin-top: 10px; }
+.seg {
+  display: inline-flex;
+  border: 1px solid var(--rule-2);
+}
+.seg-item {
+  border: none;
+  border-right: 1px solid var(--rule-2);
+  background: var(--raise);
+  color: var(--dim);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  padding: 6px 11px;
+}
+.seg-item:last-child { border-right: none; }
+.seg-item:hover:not(.active) { background: var(--raise-2); color: var(--text); }
+.seg-item.active {
+  background: var(--signal-glow);
+  color: var(--signal);
+  box-shadow: inset 0 -2px 0 var(--signal);
+}
+
+.assist-help {
+  margin: 6px 0 0;
+  font-size: 11.5px;
+  color: var(--dim);
+  max-width: 62ch;
+}
+.assist-help.inert { color: var(--signal-dim); }
 
 .verdict {
   font-family: var(--din);
@@ -675,6 +884,46 @@ h2 {
   color: var(--signal);
   font-size: 12.5px;
 }
+
+/* The region of the student's own code a hint pointed at. Quoted back so the log still
+   makes sense after the highlight has been cleared by editing. */
+.focus-ref {
+  margin-top: 8px;
+  padding: 6px 9px;
+  border-left: 2px solid var(--signal-dim);
+  background: var(--signal-glow);
+  font-size: 11.5px;
+  color: var(--dim);
+}
+.focus-ref .mono { color: var(--text); }
+
+/* CodeMirror lint styling for the tutor's focus range. The stock palette is built for a
+   light background; `info` severity is already the right semantic (this is an observation,
+   not a problem with the code), so only the colours are overridden. */
+.editor-host .cm-lintRange-info {
+  background: none;
+  background-image: none;
+  border-bottom: 2px solid var(--signal);
+  cursor: help;
+}
+.editor-host .cm-lint-marker-info {
+  content: none;
+}
+.editor-host .cm-lint-marker-info::after {
+  content: "◆";
+  color: var(--signal);
+  font-size: 9px;
+  line-height: 1;
+}
+.editor-host .cm-tooltip-lint {
+  background: var(--raise);
+  border: 1px solid var(--rule-2);
+  color: var(--text);
+  font-family: var(--din);
+  font-size: 12px;
+}
+.editor-host .cm-tooltip-lint ul { margin: 0; padding: 6px 10px; }
+.editor-host .cm-tooltip-lint li { list-style: none; }
 
 .tutor-input {
   display: flex;
@@ -832,6 +1081,282 @@ h2 {
 }
 .hint[open] summary { margin-bottom: 6px; }
 
+
+/* --- Fundamentals ---------------------------------------------------------
+   Same shape as the problem workspace, because it is the same activity. The list
+   scrolls independently so the concept text stays put while you move between items. */
+
+.fundamentals-list {
+  border-right: 1px solid var(--rule);
+  /* No `max-height`: the list stretches to the row height via the grid's `stretch`, so the
+     divider spans the full column and the list scrolls internally. A `76vh` cap left the
+     border ending in mid-air whenever the concept pane was taller than the viewport cap. */
+  overflow-y: auto;
+  background: var(--panel);
+}
+@media (max-width: 1180px) {
+  .fundamentals-list { border-right: none; border-bottom: 1px solid var(--rule); max-height: 40vh; }
+}
+
+.module-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  padding: 8px 12px 6px;
+  background: var(--raise);
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+  font-family: var(--din);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--dim);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.problem-row.active {
+  background: var(--raise);
+  border-left-color: var(--signal);
+}
+.problem-row.active .title { color: var(--text); }
+
+/* The exemplar, shown only after a pass. */
+.exemplar {
+  background: var(--ink);
+  border: 1px solid var(--rule);
+  padding: 10px 12px;
+  overflow-x: auto;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.55;
+  margin: 0;
+}
+.exemplar code { background: none; padding: 0; color: var(--text); }
+
+/* ===========================================================================
+   Responsive
+   ===========================================================================
+
+   One breakpoint set, mobile-first in effect: the desktop rules above stay untouched and
+   everything here only narrows them. Three widths matter:
+
+     860px — the fixed 216px sidebar becomes an off-canvas drawer. Below this the sidebar
+             was eating most of the viewport: at 390px it left 174px for the app, which is
+             why every view overflowed horizontally.
+     640px — multi-column grids (tables, the workspace, filter rows) collapse to a stack.
+     420px — the last squeeze: page padding and the remaining inline toolbars.
+
+   The general strategy for the grid tables is to drop the header row and let each row become
+   a labelled block. A 7-column pricing table cannot be made readable at 390px by shrinking
+   type; the columns have to stop being columns. */
+
+/* --- Topbar + drawer ------------------------------------------------------ */
+
+.topbar { display: none; }
+
+@media (max-width: 860px) {
+  /* `auto 1fr`, not the implicit auto rows: with `min-height: 100vh` the default
+     `align-content: stretch` spread the leftover height across both rows, inflating the
+     topbar to 314px of empty space. The sidebar is `position: fixed`, so it is not a grid
+     item and the two rows here are the topbar and the main column. */
+  .layout {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr;
+  }
+
+  .topbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    background: var(--panel);
+    border-bottom: 1px solid var(--rule);
+    padding: 8px 14px;
+  }
+  .menu-btn {
+    font-size: 16px;
+    line-height: 1;
+    padding: 10px 13px;
+    border-color: var(--rule-2);
+  }
+  .topbar-title {
+    font-family: var(--din);
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--signal);
+  }
+
+  .sidebar {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 260px;
+    max-width: 82vw;
+    z-index: 40;
+    overflow-y: auto;
+    transform: translateX(-100%);
+    transition: transform 140ms ease-out;
+    border-right: 1px solid var(--rule-2);
+  }
+  .sidebar.open { transform: translateX(0); }
+
+  /* Touch targets: the desktop rows are 30px tall, which is fine for a mouse and too small
+     for a thumb. 44px is the usual minimum. */
+  .sidebar .nav button { padding: 13px 16px; }
+  .sidebar .side-label { padding-top: 18px; }
+  .sidebar-foot { padding: 14px 16px; }
+
+  .nav-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 35;
+    background: rgba(0, 0, 0, 0.55);
+  }
+
+  .main { padding: 16px 14px 40px; }
+}
+
+/* --- Workspace ------------------------------------------------------------ */
+
+@media (max-width: 640px) {
+  /* Already single-column from 1180px; this is the padding and the sticky ordering. */
+  .pane { padding: 12px 12px; }
+  .statement { max-height: none; }
+  .editor-host .cm-editor { min-height: 200px; max-height: 55vh; }
+}
+
+/* --- Grid tables ---------------------------------------------------------- */
+
+@media (max-width: 640px) {
+  .tr,
+  .tr.mastery,
+  .tr.hintdep {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 10px;
+    padding: 10px 12px;
+  }
+  /* The first cell is the row's identity — give it the full width and the emphasis. */
+  .tr > span:first-child {
+    flex: 1 1 100%;
+    color: var(--text);
+  }
+  .tr > span:not(:first-child) {
+    font-size: 11.5px;
+    color: var(--dim);
+  }
+  /* With the header row gone, each number needs its own label. `data-label` is rendered as a
+     prefix on mobile and ignored above 640px, so one markup serves both. */
+  .tr > span[data-label]::before {
+    content: attr(data-label) " ";
+    color: var(--faint);
+    font-size: 9.5px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+  /* The graticule is the one cell that needs the width. */
+  .tr.mastery > .scale-wrap { flex: 1 1 100%; }
+
+  /* Last, and with the `.th` variants spelled out: the header describes columns that no
+     longer exist once each row is a block. `.tr.mastery`/`.tr.hintdep` carry the same
+     specificity as `.tr.th` and would otherwise win on source order. */
+  .tr.th,
+  .tr.th.mastery,
+  .tr.th.hintdep { display: none; }
+
+  .problem-row { grid-template-columns: 40px 1fr auto; gap: 8px; padding: 9px 10px; }
+  .progress-row {
+    grid-template-columns: 1fr auto auto;
+    gap: 8px;
+    padding: 8px 10px;
+  }
+  /* The bar is decoration once the row wraps; the numbers carry the meaning. */
+  .progress-row .track { display: none; }
+}
+
+/* --- Roadmap pattern header ----------------------------------------------- */
+
+@media (max-width: 640px) {
+  .pattern-head {
+    grid-template-columns: 16px 1fr auto;
+    gap: 8px;
+    padding: 9px 10px;
+  }
+  /* The progress bar moves to its own line under the name. */
+  .pattern-head .pattern-track {
+    grid-column: 2 / -1;
+    grid-row: 2;
+  }
+}
+
+/* --- Filters and toolbars ------------------------------------------------- */
+
+@media (max-width: 640px) {
+  .filters { gap: 8px; }
+  .filters .filter-input { min-width: 0; flex: 1 1 100%; }
+  .filters .field { flex: 1 1 46%; }
+  .filters .field select { width: 100%; }
+
+  /* `.spread` is a two-ended flex row; on a phone the ends collide. */
+  .spread { flex-wrap: wrap; }
+}
+
+/* --- Readout -------------------------------------------------------------- */
+
+@media (max-width: 640px) {
+  .readout { display: flex; width: 100%; }
+  .readout .cell {
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 9px 12px 11px;
+  }
+  .readout .v { font-size: 20px; }
+}
+
+/* --- Fundamentals --------------------------------------------------------- */
+
+@media (max-width: 640px) {
+  .fundamentals-list { max-height: 44vh; }
+  .module-head { padding: 6px 10px; }
+}
+
+/* --- Companies ------------------------------------------------------------ */
+
+@media (max-width: 640px) {
+  .company-scroll { max-height: 44vh; }
+  .company-item { padding: 8px 10px; }
+}
+
+/* --- Tutor ---------------------------------------------------------------- */
+
+@media (max-width: 640px) {
+  .tutor-input button { padding: 0 14px; }
+  .tutor-log { max-height: 260px; }
+  .case-panel { grid-template-columns: 1fr; gap: 4px; }
+  .case-panel .k { padding-top: 6px; }
+}
+
+/* --- Last squeeze --------------------------------------------------------- */
+
+@media (max-width: 420px) {
+  .main { padding: 12px 10px 32px; }
+  .readout .cell { padding: 8px 9px 10px; }
+  .readout .v { font-size: 17px; }
+  .readout .k { font-size: 8.5px; letter-spacing: 0.1em; }
+  .stopwatch { font-size: 12px; padding: 3px 7px; }
+  h1 { font-size: 15px; letter-spacing: 0.1em; }
+  .sidebar { width: 240px; }
+}
 
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }

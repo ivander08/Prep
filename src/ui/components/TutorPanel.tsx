@@ -17,6 +17,8 @@ export type TutorTurnResponse = {
   reason: string;
   message: string;
   nextQuestion: string;
+  /** Regions of your own code this hint points at. Empty when the hint is about approach. */
+  focus: Array<{ quote: string; why: string }>;
   refused: boolean;
   rejectionNote: string | null;
   model: string;
@@ -63,10 +65,13 @@ export function TutorPanel({
   slug,
   lastRun,
   onUnlocked,
+  onFocus,
 }: {
   slug: string;
   lastRun: { passed: boolean; testsPassed: number; testsTotal: number; stderr?: string; code: string } | null;
   onUnlocked: () => void;
+  /** Handed the first focus region of a turn, so the editor can highlight it. */
+  onFocus: (focus: { quote: string; why: string } | null) => void;
 }) {
   const [status, setStatus] = useState<TutorStatus | null>(null);
   const [entries, setEntries] = useState<Entry[]>([]);
@@ -90,6 +95,14 @@ export function TutorPanel({
     void refreshStatus();
   }, [slug, refreshStatus]);
 
+  // The ceiling is derived from the attempt log, so a run changes it — and `lastRun` is a
+  // fresh object on every run, which makes it the right trigger. Without this the chip kept
+  // showing the ceiling from page load, so a student who had just attempted the problem saw
+  // H0 and a hint they were now entitled to looked unavailable.
+  useEffect(() => {
+    if (lastRun) void refreshStatus();
+  }, [lastRun, refreshStatus]);
+
   useEffect(() => {
     scroller.current?.scrollTo({ top: scroller.current.scrollHeight });
   }, [entries]);
@@ -111,6 +124,9 @@ export function TutorPanel({
         setError(turn.error);
       } else {
         setEntries((e) => [...e, { kind: "tutor", turn }]);
+        // Only the first region: a second highlight would move the viewport away from the
+        // one the student is reading.
+        onFocus(turn.focus?.[0] ?? null);
         void refreshStatus();
       }
     } catch (e) {
@@ -118,7 +134,7 @@ export function TutorPanel({
     } finally {
       setBusy(false);
     }
-  }, [busy, draft, slug, refreshStatus]);
+  }, [busy, draft, slug, refreshStatus, onFocus]);
 
   const requestReview = useCallback(async () => {
     if (!lastRun || reviewing) return;
@@ -251,7 +267,16 @@ export function TutorPanel({
                 {e.turn.repaired ? " · repaired" : ""}
                 {e.turn.refused ? " · withheld" : ""}
               </span>
-              <div style={{ whiteSpace: "pre-wrap" }}>{e.turn.message}</div>
+              <div style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{e.turn.message}</div>
+              {e.turn.focus?.length > 0 ? (
+                <div className="focus-ref">
+                  {e.turn.focus.map((f, j) => (
+                    <div key={j}>
+                      <span className="mono">{f.quote}</span> — {f.why}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
               {e.turn.nextQuestion ? (
                 <div className="next-q">{e.turn.nextQuestion}</div>
               ) : null}

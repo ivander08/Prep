@@ -24,7 +24,23 @@ export type Turn = {
   contains_solution: boolean;
   contains_real_code: boolean;
   next_question: string;
+  /**
+   * Regions of the STUDENT'S OWN code this hint refers to.
+   *
+   * Deliberately NOT part of `message`, and deliberately not passed to `detectViolations`.
+   * The detector matches real-code syntax (`def `, `for(`, `return x(`) in the message — a
+   * verbatim quote of the student's own line matches those patterns, so routing `focus`
+   * through the message would make every line-specific hint get rejected as a leak at any
+   * ceiling below H4.
+   *
+   * Optional: it is absent at H0/H1 (nothing specific to point at) and at H6 (the point is
+   * the answer, not the student's line), and `validateTurn` normalises a missing value to an
+   * empty array.
+   */
+  focus?: FocusEntry[];
 };
+
+export type FocusEntry = { quote: string; why: string };
 
 export type Violation = {
   kind: "self-report" | "real-code" | "full-solution" | "syntax";
@@ -76,12 +92,23 @@ export function findRealSyntax(text: string): string | null {
 }
 
 /**
+ * What the detector is allowed to see.
+ *
+ * `Omit<Turn, "focus">` rather than `Turn`: the detector must never receive `focus`, and a
+ * type that cannot hold it makes that a compile error instead of a convention. The reason is
+ * concrete — `findRealSyntax` matches `def `, `for(`, `return x(`, and a verbatim quote of
+ * the student's own line matches those patterns, so routing `focus` into the detector would
+ * reject every line-specific hint as a leak at any ceiling below H4.
+ */
+export type DetectorInput = Omit<Turn, "focus">;
+
+/**
  * Check a draft against the ceiling. Returns every violation found, or an empty array.
  *
  * Note the asymmetry: at H4 pseudocode is permitted, so `for`/`while`/`return` are fine —
  * only *real syntax* trips the detector. At H6 nothing is checked.
  */
-export function detectViolations(turn: Turn, ceiling: number): Violation[] {
+export function detectViolations(turn: DetectorInput, ceiling: number): Violation[] {
   const violations: Violation[] = [];
   if (ceiling >= 6) return violations;
 

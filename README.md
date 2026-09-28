@@ -30,24 +30,58 @@ So the two design rules this project holds to:
 
 ## Status
 
-Phases 1-3 of 5 are complete and verified, plus the list/roadmap features.
+Phases 1-3 of 5 are complete and verified, plus the list/roadmap features and the
+fundamentals track.
 
 | | |
 |---|---|
 | Catalog | 4,068 problems, full metadata |
 | Curated lists | Blind 75, NeetCode 150/250/All, LeetCode 75, Top Interview 150, SQL 50 — all **100%** joined |
-| Executor | Python, deterministic verdicts, subprocess-isolated |
+| Executor | Python, JavaScript, Java, C++, Go — deterministic verdicts, subprocess-isolated |
 | Scheduling | ts-fsrs (FSRS-6), capped at 90 days |
-| Tutor | deterministic hint ceiling, code-reveal detector, validate/repair |
+| Tutor | deterministic hint ceiling, code-reveal detector, validate/repair, code focus |
 | Patterns | 450 problems tagged across 19 roadmap patterns |
 | Mastery | per-pattern Elo, weakness ranking, hint-dependence report |
 | Companies | 38 companies, 11,315 associations, frequency-ordered |
 | Models | 89 models with live Rupiah pricing, per-role selection |
-| Test suites | **2,869 problems with 37-144 executable assertions each** |
-| Languages | Python, JavaScript, Java, C++, Go — all verified locally |
-| Roadmap | NeetCode-style pattern blocks, weakest-first |
-| Lists | sort, filter, and group by technique / difficulty / status |
+| Test suites | **2,869 problems × 37-144 cases, graded in all five languages** |
+| Fundamentals | **31 pre-DSA concepts × 5 languages = 155 exercises**, every exemplar executed |
+| Premium | statements unavailable, tests still graded — 375 premium problems have suites |
 | System design | not yet (Phase 4) |
+
+## How this compares to other LeetCode SRS setups
+
+Five write-ups on LeetCode + spaced repetition were read and compared against this design
+(LeetCode Discuss, StudyCards AI, FlashRecall, an r/leetcode thread, and an Alex Bowe post).
+Three were readable directly; the Discuss thread needed a reader proxy and the Reddit thread a
+mirror. Two findings are worth recording.
+
+**Every one of them grades by asking the user.** Self-reported confidence — a 0–5 rating, a
+High/Medium/Low, or "how hard was it". Not one derives the grade from observable behaviour.
+The Reddit thread is a case study in why that fails: the author rated his problems by
+confidence and still ended up memorising code, with the thread's own diagnosis being
+*"memorization and intuition feel identical in the moment."* This app's behavioural grade
+(failure or unlock → Again, hints → Hard, slow clean pass → Good, fast clean pass → Easy) is
+the mechanism none of them have, because none of them run your code.
+
+**The interval cap is corroborated.** Every hand-rolled schedule in the corpus tops out
+between 28 days and ~3 months: a 1/3/7/14-day ladder then "monthly or quarterly", a 1/3/5/7/14/28
+ladder, and a "2–3 months once solved cleanly more than twice" rule. Nobody runs an unbounded
+curve — which is exactly the trap `ts-fsrs` defaults into at 36,500 days. The 90-day cap here
+sits inside the band those systems converge on.
+
+**The one genuine gap: they schedule the TECHNIQUE, this schedules the PROBLEM.** Two
+independent sources argue for pattern-level cards — FlashRecall's "one flashcard for the main
+pattern, one for the trick", and StudyCards AI's "model problem" per pattern, explicitly to
+avoid *"review burnout, where you have 100 problems to re-solve in one day"*. This app tracks
+per-pattern Elo but does not schedule anything at pattern granularity, so the data model
+already believes patterns matter while the schedule does not. That is the next thing to add,
+and `items` + `item_cards` are already the right tables for it.
+
+**Rejected from the research:** self-reported grades (they are what this app exists to
+replace), fixed interval ladders (FSRS-6 adapts per card; a ladder cannot), and "review
+mentally without re-typing" (with no code run there is no signal, so the grade collapses back
+to self-report).
 
 ## The tutor
 
@@ -86,7 +120,7 @@ regeneration loop is covered by stubbed tests, because the real model would not 
 ```bash
 bun install
 bun run ingest        # ~37 s, fetches the catalog and all curated lists
-export KENARI_API_KEY=kn-...   # required for the tutor only
+export KENARI_API_KEY=kn-...   # optional — can also be saved in the app's Settings
 bun run dev           # API on :5173
 bunx vite             # UI on :5174
 ```
@@ -94,9 +128,79 @@ bunx vite             # UI on :5174
 Then open http://localhost:5174. Everything except the tutor works without a key.
 
 ```bash
-bun test              # 42 tests
+bun test              # executor, verifiers, tutor policy/detector, SRS, fundamentals
 bunx tsc --noEmit
+bun run src/server/concepts/verify.ts   # every exemplar against its own tests
 ```
+
+## Settings
+
+The API key can be saved in the app (**Settings → AI key**) instead of the environment.
+The env var wins when both are set, so a shell-provided key is never silently overridden by
+a stale value saved earlier. The stored key is plaintext in `prep.db` — the same file that
+already holds all progress, on a single-user machine — and the UI only ever shows a last-4
+preview.
+
+The same screen has **Reset progress**, which clears every attempt, card, tutor turn, and
+mastery estimate while leaving the catalog intact (re-importing it takes ~70s and there is
+no reason to make you wait). It shows exactly what will be cleared and what will be kept,
+and requires typing `RESET`.
+
+## The editor
+
+Syntax support follows the selected language — Python, JavaScript, Java, C++, and Go each get
+real highlighting, and switching language swaps the LeetCode starter stub in with it.
+
+**Autocomplete is a deliberate three-way choice**, because the useful default for interview
+practice is not the useful default for a real editor:
+
+| setting | what it offers |
+|---|---|
+| **No assist** | nothing — you type every character |
+| **Word complete** | only identifiers already in your own document. No library APIs, so you still have to know that `defaultdict` exists; it just saves retyping what you wrote |
+| **Full assist** | everything the language package knows — Python builtins, JS globals, Go keywords |
+
+The default is **Word complete**: recalling that the API exists is the part worth practising
+unaided, and a popup that names it removes exactly that.
+
+## Hints that point at your code
+
+A hint about *your* loop bound is more useful than a hint about loop bounds in general, so the
+tutor can return `focus`: a **verbatim quote** from your code plus a short reason. The editor
+highlights it, puts a marker in the gutter, and scrolls to it.
+
+Quotes, not line numbers — line arithmetic is the unreliable part of what a model produces,
+and a substring can be located by search no matter how the model counted. A quote that is
+absent, or that appears more than once, is **dropped rather than guessed at**: a highlight in
+the wrong place asserts a precision the hint does not have. Editing clears it, and the quote is
+echoed in the tutor log so the hint still reads correctly afterwards.
+
+Focus is offered only when the ceiling is 2–5 and there is code to point at. Not at H0/H1
+(nothing specific to point at yet) and not at H6 (the point is the answer, not your line).
+
+## Fundamentals
+
+Language before algorithms. 31 concepts across six modules — collections, strings, matrices,
+sorting, idioms, pitfalls — each with a worked example, one function to write, and tests
+executed by the same runner the DSA problems use. Passing schedules the concept for review
+through `item_cards`, with the same behavioural grade derivation: no self-rating anywhere.
+
+**Every exemplar is executed against its own tests** (`concepts.test.ts`), which is what
+makes the content trustworthy — a wrong exemplar fails in the language it is wrong in rather
+than being taught as the answer. The starter must also compile and must fail, because a
+scaffold that already passes teaches nothing.
+
+## Premium problems
+
+LeetCode Premium problems return `content: null` and `codeSnippets: null` unauthenticated —
+but they DO return `exampleTestcases` and `metaData`, and 375 of them already have imported
+suites. So the statement is the only missing piece, and the runner grades them normally.
+
+The workspace offers a link to the problem and a paste box for the statement. A pasted
+statement is marked `statement_source = 'manual'` so a later fetch never overwrites it, and
+a problem that was fetched once is never re-fetched — the guard is `fetched_at IS NULL`, not
+"statement is empty". That distinction matters: an empty string is falsy, so the old guard
+re-fetched every locked problem on every page view.
 
 ## Architecture
 
@@ -105,17 +209,21 @@ src/server/
   db.ts          bun:sqlite handle + migration runner
   leetcode.ts    GraphQL client, HTML→markdown
   ingest.ts      catalog + curated-list ingestion
-  executor.ts    Python subprocess harness, verdicts
+  executor.ts    test-case parsing from statements + exampleTestcases
+  runner.ts      multi-language execution harnesses (py/js/java/cpp/go)
+  grading.ts     structured I/O grading + semantic verifiers
   srs.ts         ts-fsrs wrapper, behavioural grading
+  concepts.ts    pre-DSA fundamentals: seeding, grading, scheduling
+  concepts/      the 31-concept catalogue + one code file per language
   index.ts       Hono API
   tutor/
     policy.ts    deterministic hint ceiling (never reads student text)
     detector.ts  code-reveal detection
     client.ts    model routing, fallback, validate + repair
-    index.ts     turn orchestration, audit trail
+    index.ts     turn orchestration, audit trail, code focus
 src/ui/
-  App.tsx        overview / list / review / workspace
-  components/    CodeMirror editor, tutor panel
+  App.tsx        overview / list / review / workspace / settings
+  components/    CodeMirror editor, tutor panel, fundamentals, markdown
 ```
 
 No ORM, no state library, no UI kit. Dependencies are `hono`, `ts-fsrs`, `zod`, `react`,
@@ -125,10 +233,13 @@ No ORM, no state library, no UI kit. Dependencies are `hono`, `ts-fsrs`, `zod`, 
 
 `problems` and `lists` are the catalog. `cards` is DSA review state. `attempts` is every
 solve, including hint usage and timing. `tutor_turns` is the honest-mode audit trail.
+`concept_exercises` is the fundamentals content; `items` + `item_cards` are its review
+state.
 
-`cards` and `item_cards` are deliberately separate tables: DSA review is driven by
-execution outcome, non-DSA review by self-rating. Conflating them is what makes other
-tools' SRS feel wrong.
+`cards` and `item_cards` are deliberately separate tables: DSA review is keyed by `qid` and
+driven by execution outcome, non-DSA review is keyed by `item_id`. They share one scheduler
+and one grade derivation — `reviewItem` mirrors `reviewCard` exactly, differing only in the
+table — but conflating the tables is what makes other tools' SRS feel wrong.
 
 ## Things that will bite you
 
@@ -183,6 +294,61 @@ Also: LeetCode's `__type` introspection is disabled, `companyTags` returns null
 unauthenticated, and the SQL study plan's slug is `top-sql-50` — `sql-50` returns `null`
 silently rather than erroring.
 
+**9. `!statementMd` is not "not fetched yet".** A Premium problem stores an empty statement
+by design, and an empty string is falsy — so the old guard re-fetched from LeetCode on every
+single page view of a locked problem, for a result that cannot change. The guard is
+`fetched_at IS NULL`. Measured after the fix: re-open is ~1 ms against ~344 ms for a real
+fetch.
+
+**10. Bun's `db.exec` rejects a comment-only SQL script.** A migration whose entire content
+is comments throws *"Query contained no valid SQL statement; likely empty query"*, which
+aborts the migration and leaves it recorded as unapplied. A migration that changes no schema
+still needs one statement.
+
+**11. A verbatim quote of the student's own code matches the leak detector.** `findRealSyntax`
+matches `def `, `for(`, `return x(` — patterns that appear in the student's own line. So the
+tutor's `focus` field (which quotes that line to highlight it) must never reach
+`detectViolations`, or every line-specific hint would be rejected as a leak below H4.
+`detectViolations` takes `Omit<Turn, "focus">` so the separation is a compile error, not a
+convention.
+
+**12. Go requires imports to precede all declarations.** The harness splices user code in
+*after* its own imports, so user code cannot import anything itself. Concepts therefore
+declare their stdlib packages in the catalogue (`goImports`) and the harness emits them —
+per concept, because Go rejects unused imports, so a blanket list breaks every submission
+that does not use them.
+
+**13. The C++ harness had no `unquote`.** `cppCompare` called `mini::unquote(...)` for
+`string` returns and `cppUnpack` passed scalar string arguments through with their JSON
+quotes intact, so `f("()")` received the 4-character string `"()"` including quotes. Both
+were found by running the fundamentals track, which is the first thing to exercise
+string-returning and string-argument concepts in C++.
+
+**14. Java and C++ never decoded JSON string escapes.** `encodeJavaValue` JSON-escapes every
+argument, so a tab arrived as the two characters `\` `t`. Java's `unquote` and C++'s
+`toStrVec` stripped the surrounding quotes and nothing else. Measured: a `charSum("a\tb")`
+probe returned **403** instead of **204** — the difference is exactly the escape characters
+(92 + 116 − 9). Python, JavaScript and Go decode for free (`json.loads`, an inline literal,
+`json.Unmarshal`), so this only ever broke in two of five languages.
+
+**15. A case's index must match the harness's own numbering.** `prepareSuite` kept the
+ORIGINAL suite position while the harness enumerated its payload from 0. The two agreed only
+until the first skipped case — after which every lookup returned "no result returned" for
+cases that had run perfectly. Measured as a correct Python `two-sum` solution scoring
+**5/72**. Indices are now the position in the filtered payload.
+
+**16. Go cannot import from inside user code.** A Go import declaration must precede every
+other declaration, and the harness splices user code in *after* its own imports — so
+`sort.Slice` and `strings.Fields` were simply unavailable, and a correct Go solution failed to
+compile. The runner now retries once with the packages the compiler named in its
+`undefined: X` errors. Per-language, because Go rejects unused imports, so a blanket list
+would break every submission that does not use them.
+
+**17. C++'s `int[]` comparison sorted both sides.** It would have accepted a wrong *order* on
+a problem that cares about order, and there was no `string[]` comparison at all — so every
+`string[]` problem reported "unsupported signature". Both are fixed, and `list<list<string>>`
+(needed for `group-anagrams`) now has a comparison and a renderer.
+
 ## Grading
 
 Correctness is decided two ways, deliberately kept separate:
@@ -217,12 +383,36 @@ as an expectation would fail every correct submission.
 
 LeetCode's API exposes only `exampleTestcases` — the 2-3 public examples — so a solution
 that passes locally can still fail their hidden tests. `newfacade/LeetCodeDataset`
-(Apache-2.0) closes most of that gap: **2,869 problems with 37-144 executable assertions
-each**, imported in 11 s and joined to the catalog at 100% by slug.
+(Apache-2.0) closes most of that gap: **2,869 problems with 37-144 executable cases each**,
+imported in 11 s and joined to the catalog at 100% by slug.
 
 ```bash
 bun run ingest:tests
 ```
+
+**These run in every language, not just Python.** `io_cases` is a JSON array of
+`{input: "nums = [3,3]", output: "[0,1]"}` pairs and both sides are parsed in TypeScript, so
+the cases were always language-agnostic — only the dataset's generated `check()` asserts are
+Python. Each language runs the same cases through its own harness and is graded by the same
+TypeScript comparison, so `two-sum` is 72 cases in Go and C++ as well as in Python.
+
+Grading in one place also removed a class of per-language bug: the C++ harness had **no
+`string[]` comparison at all**, and its `int[]` comparison sorted both sides — which would
+have accepted a wrong *order* on a problem that cares about order. `verifiers.ts` holds the
+order-free cases explicitly instead.
+
+Two kinds of case are **dropped and reported**, never guessed at:
+
+1. **Expected value is `null`** (2,357 cases across 68 problems). These are problems that
+   guarantee a solution exists, so the reference solution falls off the end. Python returns
+   `None`, which serialises to `null`; JavaScript returns `undefined` (which `JSON.stringify`
+   drops entirely), and Go/Java/C++ return an empty array. Measured before the fix: a correct
+   JavaScript solution scored **72/80** and a correct C++ solution **71/80**, every failure
+   being one of these. Treating `[]` as "no solution" would accept an empty array where it is
+   the wrong answer — a false ACCEPT, the one direction that teaches something untrue.
+2. **Arguments the language cannot construct.** Java and C++ declare `int` as 32-bit, and the
+   dataset contains inputs like `-3000000000` on a problem whose signature is `int[]`. The
+   case cannot be *run*, so counting it as a failure would mark a correct solution wrong.
 
 **Two honest caveats, both surfaced in the UI:**
 
@@ -231,10 +421,7 @@ bun run ingest:tests
 2. **They are sometimes stricter than the problem statement.** Measured: Two Sum's suite
    includes `nums = [-1,-2,-3,-4], target = -8 → None`, but the statement promises *"exactly
    one solution"*, so that case is outside the stated contract. A correct brute force fails
-   it. The UI shows the exact failing assertion so you can judge rather than guess.
-
-Full suites are **Python-only** — the dataset ships Python `assert` statements calling a
-Python entry point. Other languages fall back to the example cases, and the disclaimer says so.
+   it. The UI shows the exact failing case so you can judge rather than guess.
 
 ## Languages
 
@@ -277,5 +464,8 @@ a hosted product and why the repo ships no problem content.
 - **Phase 3** — per-pattern mastery, weakness view, company tags, model picker ✅
 - **Phase 3.5** — full test suites, multi-language execution, roadmap, sort/filter/group ✅
 - **Phase 3.6** — semantic grading for multi-answer problems, dark editor theme, true list sizes ✅
+- **Phase 3.7** — settings + reset, premium statements, editor language fix, autocomplete
+  assist, hint code-focus, fundamentals track, suites in all five languages ✅
+- **Phase 3.8** — pattern-level review cards, so the schedule matches the mastery data ← next
 - **Phase 4** — system design: 45-min mock, rubric grading
 - **Phase 5** — stack-specific and behavioral tracks

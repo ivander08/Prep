@@ -8,19 +8,33 @@
  */
 
 import { Hono } from "hono";
-import { db, migrate, getMeta } from "./db.ts";
+import { db, migrate, getMeta, setMeta } from "./db.ts";
 import { fetchProblem, htmlToMarkdown, hintToMarkdown } from "./leetcode.ts";
 import { buildTestCases, runFullTests, type FullTestRow, type ProblemMeta } from "./executor.ts";
-import { runSuite } from "./grading.ts";
+import { hasStructuredSuite, runSuiteAnyLanguage } from "./grading.ts";
 import { runInLanguage } from "./runner.ts";
 import { LANGUAGES, detectAvailableLanguages } from "./languages.ts";
-import { dueQueue, nextUnsolved, listProgress, reviewCard, gradeAttempt } from "./srs.ts";
+import { dueQueue, nextUnsolved, listProgress, reviewCard, gradeAttempt, GRADE_LIMIT_SECONDS } from "./srs.ts";
 import { tutorTurn, reviewAttempt } from "./tutor/index.ts";
 import { hintCeiling, ceilingReason } from "./tutor/policy.ts";
 import { fetchCatalog, allRoleModels, setRoleModel, ROLE_LABEL, ROLES } from "./models.ts";
 import { masteryReport, hintDependence, studyStats, recomputeMastery } from "./mastery.ts";
+import {
+  conceptModules,
+  getConcept,
+  listConcepts,
+  recordConcept,
+  runConcept,
+  seedConcepts,
+  LANG_LABEL,
+  LANGS,
+} from "./concepts.ts";
 
 migrate();
+
+// The concept catalogue is code, so it is seeded on every boot rather than migrated: an edit
+// to the prose or an exemplar then takes effect on reload instead of needing a new migration.
+seedConcepts();
 
 const app = new Hono();
 
@@ -57,40 +71,75 @@ app.get("/api/problems/:slug", async (c) => {
         difficulty: string;
         topics: string | null;
         statement_md: string | null;
+        statement_source: string | null;
         hints: string | null;
         snippets: string | null;
         meta_json: string | null;
         examples: string | null;
+        fetched_at: string | null;
       },
       [string]
     >(
-      `SELECT qid, slug, title, difficulty, topics, statement_md, hints, snippets, meta_json, examples
+      `SELECT qid, slug, title, difficulty, topics, statement_md, statement_source, hints,
+              snippets, meta_json, examples, fetched_at
        FROM problems WHERE slug = ?`,
     )
     .get(slug);
 
   if (!row) return c.json({ error: "problem not found" }, 404);
 
-  let { statement_md: statementMd, hints, snippets, meta_json: metaJson, examples } = row;
+  let {
+    statement_md: statementMd,
+    statement_source: statementSource,
+    hints,
+    snippets,
+    meta_json: metaJson,
+    examples,
+  } = row;
 
-  if (!statementMd) {
+  /**
+   * Fetch once, then never again.
+   *
+   * The guard is `fetched_at IS NULL`, not `statement_md IS NULL`. A Premium problem
+   * returns `content: null`, so it stores an empty statement — and an empty string is
+   * falsy, which made every open of a locked problem re-fetch from LeetCode. That is a
+   * network call per page view for a result that cannot change.
+   *
+   * A manually pasted statement is also exempt: `statement_source = 'manual'` means the user
+   * wrote it, and a later fetch would silently replace their text with nothing.
+   */
+  if (row.fetched_at === null && statementSource !== "manual") {
     try {
       const detail = await fetchProblem(slug);
-      statementMd = htmlToMarkdown(detail.content ?? "");
+      statementMd = detail.content ? htmlToMarkdown(detail.content) : "";
+      statementSource = detail.content ? "leetcode" : null;
       hints = JSON.stringify(detail.hints ?? []);
       snippets = JSON.stringify(detail.codeSnippets ?? []);
       metaJson = detail.metaData ?? "{}";
       examples = detail.exampleTestcases ?? "";
 
       db.run(
-        `UPDATE problems SET statement_md = ?, hints = ?, snippets = ?, meta_json = ?, examples = ?,
-                             fetched_at = ? WHERE qid = ?`,
-        [statementMd, hints, snippets, metaJson, examples, new Date().toISOString(), row.qid],
+        `UPDATE problems SET statement_md = ?, statement_source = ?, hints = ?, snippets = ?,
+                             meta_json = ?, examples = ?, fetched_at = ? WHERE qid = ?`,
+        [
+          statementMd,
+          statementSource,
+          hints,
+          snippets,
+          metaJson,
+          examples,
+          new Date().toISOString(),
+          row.qid,
+        ],
       );
     } catch (e) {
       return c.json({ error: `failed to fetch statement: ${String(e)}` }, 502);
     }
   }
+
+  // Whether a suite will actually grade this problem in Python. The statement-parsed examples
+  // are then irrelevant, so the warning below is only meaningful when this is false.
+  const hasSuite = hasStructuredSuite(slug);
 
   const parsed = buildTestCases({
     statementMd: statementMd ?? "",
@@ -104,6 +153,12 @@ app.get("/api/problems/:slug", async (c) => {
     )
     .get(row.qid);
 
+  // Premium-only and no prose. The tests still work — 375 Premium problems have imported
+  // suites, and `exampleTestcases`/`metaData` come back unauthenticated — so this is not an
+  // error, it is one missing piece of the page. The signal is precise: examples came back
+  // but the statement did not, which is exactly the Premium response shape.
+  const premiumLocked = !statementMd && (examples ?? "").trim().length > 0;
+
   return c.json({
     qid: row.qid,
     slug: row.slug,
@@ -111,18 +166,68 @@ app.get("/api/problems/:slug", async (c) => {
     difficulty: row.difficulty,
     topics: (row.topics ?? "").split(",").filter(Boolean),
     statementMd,
+    statementSource,
+    premiumLocked,
     hints: (JSON.parse(hints ?? "[]") as string[]).map(hintToMarkdown),
     snippets: JSON.parse(snippets ?? "[]") as Array<{ langSlug: string; code: string }>,
     meta: parsed.meta,
     testCases: parsed.cases.map((tc) => ({ args: tc.args, expected: tc.expected })),
+    // Returned as-is; the UI suppresses it when `hasSuite` and Python is selected, because a
+    // 101-case suite is what grades the run then, and a "cannot be auto-graded" line beside an
+    // ACCEPTED verdict reads as a contradiction.
     parseWarning: parsed.parseWarning ?? null,
+    hasSuite,
     card: card ?? null,
+    gradeLimitSeconds: GRADE_LIMIT_SECONDS,
   });
+});
+
+/**
+ * Store a statement the user pasted.
+ *
+ * Premium problems return `content: null` unauthenticated, so there is no fetch that
+ * recovers the prose. Pasting is the only path, and `statement_source = 'manual'` marks it
+ * so a later fetch never overwrites it.
+ */
+app.post("/api/problems/:slug/statement", async (c) => {
+  const slug = c.req.param("slug");
+  const body = (await c.req.json().catch(() => ({}))) as { statementMd?: string };
+  const md = (body.statementMd ?? "").trim();
+  if (md.length === 0) return c.json({ error: "statementMd is empty" }, 400);
+
+  const row = db.query<{ qid: number }, [string]>("SELECT qid FROM problems WHERE slug = ?").get(slug);
+  if (!row) return c.json({ error: "problem not found" }, 404);
+
+  db.run("UPDATE problems SET statement_md = ?, statement_source = 'manual' WHERE qid = ?", [
+    md,
+    row.qid,
+  ]);
+  return c.json({ ok: true, statementMd: md, statementSource: "manual" });
 });
 
 // ---------------------------------------------------------------------------
 // Execution
 // ---------------------------------------------------------------------------
+
+/**
+ * A returned value too large to send, replaced by a note.
+ *
+ * `got` is unbounded — it is whatever the student's code returned — so one wrong answer that
+ * builds a large structure can serialise to megabytes for a single case (measured: 1.3 MB
+ * for one case of a 400x40 string matrix). Grading happens on the raw value BEFORE this
+ * point, so replacing the payload here changes only what is displayed, never the verdict.
+ *
+ * The limit is generous: the largest legitimate answer in the corpus is a 5040-permutation
+ * list at ~100 KB, and the largest expected value is 408 bytes.
+ */
+const MAX_TRANSPORT_CHARS = 200_000;
+
+const cappable = (v: unknown): unknown => {
+  const s = JSON.stringify(v);
+  return s === undefined || s.length <= MAX_TRANSPORT_CHARS
+    ? v
+    : `[${s.length} characters — too large to display]`;
+};
 
 app.post("/api/run", async (c) => {
   const body = (await c.req.json()) as { slug: string; code: string; fnName?: string; language?: string };
@@ -132,38 +237,38 @@ app.post("/api/run", async (c) => {
     )
     .get(body.slug);
 
-  if (!problem?.statement_md) return c.json({ error: "problem not loaded — open it first" }, 400);
+  if (!problem) return c.json({ error: "unknown problem" }, 404);
+
+  // NOTE: an empty `statement_md` is NOT a reason to refuse. A Premium problem stores an
+  // empty statement by design and still has a usable suite — refusing here would make 375
+  // gradeable Premium problems unrunnable.
 
   const language = body.language ?? "python3";
 
-  // Prefer the imported full test suite. It is a third-party proxy, not LeetCode's own
-  // tests, but it is 37-144 executable assertions instead of 2-3 public examples, so it
-  // catches far more.
+  // Prefer the imported full test suite: 37-144 executable cases instead of 2-3 public
+  // examples, so it catches far more.
   //
-  // The dataset's suites are Python `assert` statements calling a Python entry point, so
-  // they only apply to Python submissions. For other languages the run falls back to the
-  // parsed example cases — which is a genuine limitation, not an oversight, and the
-  // disclaimer says so.
-  const suite =
-    language === "python3"
-      ? db
-          .query<FullTestRow, [string]>(
-            "SELECT slug, entry_point, prelude, test_body, io_cases FROM full_tests WHERE slug = ?",
-          )
-          .get(body.slug)
-      : null;
+  // This is NOT Python-only, and it never needed to be. `io_cases` is a JSON array of
+  // `{input: "nums = [3,3]", output: "[0,1]"}` pairs and both sides are parsed in TypeScript,
+  // so the cases are language-agnostic — only the dataset's generated `check()` asserts are
+  // Python. Every language therefore runs the same cases through its own harness and is
+  // graded by the same TypeScript comparison.
+  const suite = db
+    .query<FullTestRow, [string]>(
+      "SELECT slug, entry_point, prelude, test_body, io_cases FROM full_tests WHERE slug = ?",
+    )
+    .get(body.slug);
 
-  // Structured I/O grading supersedes the assert-based path for Python: it can apply a
-  // semantic verifier, so a correct solution that orders its answer differently is accepted
-  // rather than rejected.
-  if (language === "python3" && suite?.io_cases) {
-    const meta = problem.meta_json ? (JSON.parse(problem.meta_json) as ProblemMeta) : null;
-    const graded = await runSuite({
+  const meta = problem.meta_json ? (JSON.parse(problem.meta_json) as ProblemMeta) : null;
+
+  if (suite?.io_cases) {
+    const graded = await runSuiteAnyLanguage({
       slug: body.slug,
       code: body.code,
       fnName: body.fnName ?? meta?.name ?? "",
       ioJson: suite.io_cases,
       meta,
+      language,
     });
 
     return c.json({
@@ -174,11 +279,15 @@ app.post("/api/run", async (c) => {
       skipped: graded.skipped,
       semantic: graded.semanticCount > 0,
       durationMs: graded.durationMs,
-      cases: graded.cases.slice(0, 40).map((c) => ({
+      // Every case, not the first 40. A suite runs up to 128 (sort-colors) and a truncated
+      // list silently hides the failing case the student is looking for — the count line
+      // said "18/72" while only 40 were ever rendered.
+      cases: graded.cases.map((c) => ({
         index: c.index,
-        args: [c.input],
+        input: c.input,
+        args: c.args,
         expected: c.expected,
-        got: c.got,
+        got: cappable(c.got),
         pass: c.pass,
         ...(c.error ? { error: c.error } : {}),
       })),
@@ -193,7 +302,10 @@ app.post("/api/run", async (c) => {
     });
   }
 
-  if (suite) {
+  // A suite with no parsed `io_cases` can still be run, but only in Python — the dataset
+  // ships it as Python `assert` statements calling a Python entry point, so there is nothing
+  // to hand another language.
+  if (suite && language === "python3") {
     const full = await runFullTests({ code: body.code, suite });
     return c.json({
       source: full.source,
@@ -212,7 +324,7 @@ app.post("/api/run", async (c) => {
   }
 
   const parsed = buildTestCases({
-    statementMd: problem.statement_md,
+    statementMd: problem.statement_md ?? "",
     exampleTestcases: problem.examples,
     metaData: problem.meta_json,
   });
@@ -237,7 +349,14 @@ app.post("/api/run", async (c) => {
       );
     }
 
-    return c.json({ error: parsed.parseWarning ?? "no runnable test cases", parseWarning: true }, 422);
+    // Nothing to grade and it is not a design problem: the examples are in a layout this
+    // parser does not read. Flagged so the UI can explain rather than render a red failure —
+    // it is a limitation of the runner, not a wrong answer from the student.
+    if (parsed.parseWarning) {
+      return c.json({ error: parsed.parseWarning, noGradeableTests: true }, 422);
+    }
+
+    return c.json({ error: "no runnable test cases for this problem", noGradeableTests: true }, 422);
   }
 
   const fnName = body.fnName ?? parsed.meta.name;
@@ -256,13 +375,14 @@ app.post("/api/run", async (c) => {
     parseWarning: parsed.parseWarning ?? null,
     // Surfaced deliberately: only exampleTestcases are public, so a green run here is not
     // a guarantee of passing LeetCode's hidden tests.
+    //
+    // Reaching this branch means the problem has NO imported suite at all — the suite path
+    // above handles every language, so this is not a language limitation. Saying "suites are
+    // Python-only" here would be false and would send the student to switch languages for
+    // nothing.
     disclaimer:
-      language === "python3"
-        ? "Graded against the public example cases only — no full suite was found for this problem. " +
-          "LeetCode's hidden tests are not in the API."
-        : `Graded against the public example cases only. Full test suites are Python-only ` +
-          `(the dataset ships Python assertions), so ${language} submissions use the examples. ` +
-          `Switch to Python for the 80-assertion suite.`,
+      "Graded against the public example cases only — no imported suite exists for this problem. " +
+      "LeetCode's hidden tests are not in the API.",
   });
 });
 
@@ -495,6 +615,91 @@ app.post("/api/mastery/recompute", (c) => {
 });
 
 // ---------------------------------------------------------------------------
+// Settings + reset
+// ---------------------------------------------------------------------------
+
+/**
+ * Which API key the tutor will use, and where it comes from.
+ *
+ * The key itself is never returned. A last-4 preview is enough to confirm which key is in
+ * play without putting a credential into a response body, a browser history entry, or a
+ * screenshot.
+ */
+app.get("/api/settings", (c) => {
+  const stored = getMeta("kenari_api_key");
+  const fromEnv = Boolean(process.env.KENARI_API_KEY);
+  return c.json({
+    keySource: fromEnv ? "env" : stored ? "database" : "none",
+    keyPreview: fromEnv ? "(from KENARI_API_KEY env var)" : stored ? `…${stored.slice(-4)}` : null,
+  });
+});
+
+app.post("/api/settings/key", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as { key?: string };
+  const key = (body.key ?? "").trim();
+  if (key.length === 0) return c.json({ error: "key is empty" }, 400);
+  if (!key.startsWith("kn-")) return c.json({ error: "kenari keys start with kn-" }, 400);
+  setMeta("kenari_api_key", key);
+  return c.json({ ok: true, keyPreview: `…${key.slice(-4)}` });
+});
+
+app.delete("/api/settings/key", (c) => {
+  db.run("DELETE FROM meta WHERE key = 'kenari_api_key'");
+  return c.json({ ok: true });
+});
+
+/** What a reset would remove, and what it would keep. Shown before confirming. */
+app.get("/api/reset/preview", (c) => {
+  const count = (t: string) =>
+    db.query<{ n: number }, []>(`SELECT COUNT(*) AS n FROM ${t}`).get()?.n ?? 0;
+  return c.json({
+    clears: {
+      attempts: count("attempts"),
+      cards: count("cards"),
+      tutor_turns: count("tutor_turns"),
+      pattern_mastery: count("pattern_mastery"),
+      item_cards: count("item_cards"),
+    },
+    keeps: {
+      problems: count("problems"),
+      lists: count("lists"),
+      company_problems: count("company_problems"),
+      full_tests: count("full_tests"),
+      model_roles: count("model_roles"),
+    },
+  });
+});
+
+/**
+ * Clear all learning state.
+ *
+ * The catalog (problems, lists, company tags, test suites) is untouched — re-importing it
+ * takes ~70s and there is no reason to make the user wait for a reset of their own
+ * progress. `model_roles` is also kept: it is a preference, not progress.
+ *
+ * Deleting `tutor_turns` before `attempts` matters — the foreign key is
+ * `tutor_turns.attempt_id REFERENCES attempts(id)`, and with `foreign_keys = ON` the
+ * reverse order fails.
+ */
+app.post("/api/reset", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as { confirm?: string };
+  if (body.confirm !== "RESET") {
+    return c.json({ error: 'send {"confirm":"RESET"} to confirm' }, 400);
+  }
+
+  const cleared: Record<string, number> = {};
+  db.transaction(() => {
+    for (const t of ["tutor_turns", "attempts", "cards", "item_cards", "pattern_mastery"]) {
+      const n = db.query<{ n: number }, []>(`SELECT COUNT(*) AS n FROM ${t}`).get()?.n ?? 0;
+      db.run(`DELETE FROM ${t}`);
+      cleared[t] = n;
+    }
+  })();
+
+  return c.json({ ok: true, cleared });
+});
+
+// ---------------------------------------------------------------------------
 // Companies
 // ---------------------------------------------------------------------------
 
@@ -521,15 +726,13 @@ app.get("/api/lists/:name/problems", (c) => {
         acRate: number | null;
         attempts: number;
         hintsUsed: number | null;
-        hasFullTests: number;
       },
       [string, number]
     >(
       `SELECT p.qid, p.slug, p.title, p.difficulty, l.position, p.pattern, p.topics, p.ac_rate AS acRate,
               COALESCE((SELECT MAX(a.passed) FROM attempts a WHERE a.qid = p.qid), 0) AS solved,
               (SELECT COUNT(*) FROM attempts a WHERE a.qid = p.qid) AS attempts,
-              (SELECT MAX(a.hints_used) FROM attempts a WHERE a.qid = p.qid) AS hintsUsed,
-              CASE WHEN EXISTS (SELECT 1 FROM full_tests f WHERE f.slug = p.slug) THEN 1 ELSE 0 END AS hasFullTests
+              (SELECT MAX(a.hints_used) FROM attempts a WHERE a.qid = p.qid) AS hintsUsed
        FROM lists l JOIN problems p ON p.qid = l.qid
        WHERE l.name = ? ORDER BY l.position ASC LIMIT ?`,
     )
@@ -637,6 +840,71 @@ app.get("/api/languages", async (c) => {
   const available = await detectAvailableLanguages();
   return c.json({
     languages: LANGUAGES.map((l) => ({ id: l.id, label: l.label, langSlug: l.langSlug, available: available[l.id] ?? false })),
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fundamentals (pre-DSA concepts)
+// ---------------------------------------------------------------------------
+
+/**
+ * Concepts grouped into modules, in teaching order.
+ *
+ * The slug contains a slash (`python3/2d-array-init`) and Hono route parameters do not match
+ * across `/`, so the item is addressed by QUERY parameter rather than a path parameter. A
+ * `:slug` route would 404 on every real slug; a wildcard would swallow `/api/concepts/run`.
+ */
+app.get("/api/concepts", (c) => {
+  const lang = c.req.query("lang") ?? undefined;
+  return c.json({
+    lang: lang ?? null,
+    languages: LANGS,
+    langLabels: LANG_LABEL,
+    modules: conceptModules(lang),
+    total: listConcepts(lang).length,
+  });
+});
+
+app.get("/api/concepts/item", (c) => {
+  const slug = c.req.query("slug");
+  if (!slug) return c.json({ error: "slug query parameter is required" }, 400);
+
+  const concept = getConcept(slug);
+  if (!concept) return c.json({ error: `unknown concept: ${slug}` }, 404);
+
+  return c.json({ ...concept, gradeLimitSeconds: GRADE_LIMIT_SECONDS });
+});
+
+/**
+ * Run a submission against a concept's tests.
+ *
+ * Graded by the same executor the DSA problems use, and on a pass the concept is scheduled
+ * through `item_cards` with the same behavioural grade — there is no self-rating anywhere in
+ * this app and a concept is not an exception.
+ */
+app.post("/api/concepts/run", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as { slug?: string; code?: string; seconds?: number };
+  if (!body.slug) return c.json({ error: "slug is required" }, 400);
+  if (typeof body.code !== "string") return c.json({ error: "code is required" }, 400);
+
+  const concept = getConcept(body.slug);
+  if (!concept) return c.json({ error: `unknown concept: ${body.slug}` }, 404);
+
+  const result = await runConcept(body.slug, body.code);
+  const schedule = recordConcept(
+    body.slug,
+    { accepted: result.accepted, passed: result.passed, total: result.total },
+    body.seconds ?? 0,
+  );
+
+  return c.json({
+    ...result,
+    disclaimer:
+      `${result.total} test case${result.total === 1 ? "" : "s"} executed locally. ` +
+      `Same runner as the DSA problems.`,
+    grade: schedule.grade,
+    nextDue: schedule.due,
+    intervalDays: schedule.intervalDays,
   });
 });
 

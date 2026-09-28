@@ -13,6 +13,7 @@
 import { describe, expect, test } from "bun:test";
 import { hintCeiling, ceilingReason, HINT_RULES } from "./policy.ts";
 import { detectViolations, findRealSyntax, type Turn } from "./detector.ts";
+import { parseFocus } from "./index.ts";
 
 const turn = (over: Partial<Turn> = {}): Turn => ({
   hint_level: 0,
@@ -146,5 +147,53 @@ describe("detectViolations — the asymmetry that matters", () => {
     const fence = "```\n" + Array.from({ length: 8 }, (_, i) => `line ${i}`).join("\n") + "\n```";
     const v = detectViolations(turn({ message: fence }), 2);
     expect(v.some((x) => x.kind === "full-solution")).toBe(true);
+  });
+});
+
+describe("focus — the field the detector must never see", () => {
+  // Not every line a tutor would point at trips the syntax patterns — `for i in range(n):`
+  // and `seen[x] = i` are both clean. The trap is the subset that does: a quoted `def`,
+  // a C-style `for(`, or a runtime call. Those are exactly the lines a hint about "your
+  // loop bound" or "your function signature" refers to, so the overlap is real, not
+  // hypothetical.
+  const TRAPPING_QUOTES = [
+    "def twoSum(self, nums, target):", // Python function definition
+    "for (let i = 0; i < n; i++) {", // C-style for loop
+    "print(len(seen))", // language runtime call
+  ];
+
+  test("a verbatim quote of the student's own line trips the detector in message", () => {
+    for (const quoted of TRAPPING_QUOTES) {
+      expect(findRealSyntax(quoted)).toBeTruthy();
+      expect(detectViolations(turn({ message: quoted }), 2).some((x) => x.kind === "real-code")).toBe(true);
+    }
+  });
+
+  test("the same quotes carried in focus are not violations", () => {
+    // `detectViolations` takes `Omit<Turn, "focus">` so a well-typed caller cannot pass it;
+    // this pins the runtime behaviour for a caller that widens the object anyway.
+    const t = turn({ message: "Look at the loop bound you wrote." });
+    const withFocus = { ...t, focus: TRAPPING_QUOTES.map((q) => ({ quote: q, why: "look here" })) };
+    expect(detectViolations(withFocus, 2)).toHaveLength(0);
+  });
+
+  test("parseFocus keeps well-shaped entries", () => {
+    expect(parseFocus([{ quote: "x = 1", why: "unused" }])).toEqual([{ quote: "x = 1", why: "unused" }]);
+  });
+
+  test("parseFocus drops entries with no quote or no why", () => {
+    expect(parseFocus([{ why: "no quote" }, { quote: "q" }, { quote: "q", why: "   " }, null, 7])).toEqual([]);
+  });
+
+  test("parseFocus treats a missing field as no focus, not as an error", () => {
+    // Absent focus must NOT trigger the validate/repair retry: it is normal for an
+    // approach-level hint, and repairing would cost a second model call.
+    expect(parseFocus(undefined)).toEqual([]);
+    expect(parseFocus("nonsense")).toEqual([]);
+  });
+
+  test("parseFocus caps the list at three regions", () => {
+    const many = Array.from({ length: 6 }, (_, i) => ({ quote: `q${i}`, why: "w" }));
+    expect(parseFocus(many)).toHaveLength(3);
   });
 });

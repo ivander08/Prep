@@ -56,7 +56,7 @@ public class Main {
         Object expected = coerce(expPart, m.getReturnType());
         boolean ok = same(got, expected);
         if (ok) passed++;
-        sb.append(",\"got\":\"").append(esc(render(got))).append("\",\"pass\":").append(ok);
+        sb.append(",\"got\":").append(render(got)).append(",\"pass\":").append(ok);
       } catch (Throwable e) {
         Throwable c = e.getCause() != null ? e.getCause() : e;
         sb.append(",\"got\":null,\"pass\":false,\"error\":\"")
@@ -90,21 +90,66 @@ public class Main {
     return out.toString();
   }
 
-  /** Render a returned value back to the flat encoding, for display and comparison. */
+  /**
+   * Render a returned value as a JSON VALUE, not as a JSON string.
+   *
+   * This used to flat-encode every result: an int[] came back as the string "[0,1]", and the
+   * string "()" came back as "()" too, so nothing downstream could tell an array from a
+   * string that merely looks like one. Python, JavaScript and Go all return real values, so
+   * rendering the same shape here is what lets one grader compare all five languages.
+   *
+   * Elements are rendered recursively, which is what makes int[][] and List<List<Integer>>
+   * arrive as nested arrays instead of the flat text Arrays.deepToString would print.
+   */
   static String render(Object v) {
     if (v == null) return "null";
-    if (v instanceof int[]) return Arrays.toString((int[]) v).replace(" ", "");
-    if (v instanceof long[]) return Arrays.toString((long[]) v).replace(" ", "");
-    if (v instanceof double[]) return Arrays.toString((double[]) v).replace(" ", "");
-    if (v instanceof boolean[]) {
-      boolean[] b = (boolean[]) v;
-      StringBuilder sb = new StringBuilder("[");
-      for (int i = 0; i < b.length; i++) { if (i > 0) sb.append(","); sb.append(b[i]); }
+    if (v instanceof String) return quote((String) v);
+    if (v instanceof Character) return quote(String.valueOf(v));
+    if (v instanceof Integer || v instanceof Long || v instanceof Boolean) return String.valueOf(v);
+    if (v instanceof Double) {
+      // NaN and Infinity have no JSON number literal. Emitting them verbatim made the WHOLE
+      // harness output unparseable, so one bad case would cost every case; they become null.
+      double d = (Double) v;
+      return (Double.isNaN(d) || Double.isInfinite(d)) ? "null" : String.valueOf(d);
+    }
+    if (v instanceof int[]) {
+      int[] a = (int[]) v; StringBuilder sb = new StringBuilder("[");
+      for (int i = 0; i < a.length; i++) { if (i > 0) sb.append(","); sb.append(a[i]); }
       return sb.append("]").toString();
     }
-    if (v instanceof Object[]) return Arrays.deepToString((Object[]) v).replace(" ", "");
-    if (v instanceof List) return v.toString().replace(" ", "");
-    return String.valueOf(v);
+    if (v instanceof long[]) {
+      long[] a = (long[]) v; StringBuilder sb = new StringBuilder("[");
+      for (int i = 0; i < a.length; i++) { if (i > 0) sb.append(","); sb.append(a[i]); }
+      return sb.append("]").toString();
+    }
+    if (v instanceof double[]) {
+      double[] a = (double[]) v; StringBuilder sb = new StringBuilder("[");
+      for (int i = 0; i < a.length; i++) { if (i > 0) sb.append(","); sb.append(render(a[i])); }
+      return sb.append("]").toString();
+    }
+    if (v instanceof boolean[]) {
+      boolean[] a = (boolean[]) v; StringBuilder sb = new StringBuilder("[");
+      for (int i = 0; i < a.length; i++) { if (i > 0) sb.append(","); sb.append(a[i]); }
+      return sb.append("]").toString();
+    }
+    if (v instanceof Object[]) {
+      Object[] a = (Object[]) v; StringBuilder sb = new StringBuilder("[");
+      for (int i = 0; i < a.length; i++) { if (i > 0) sb.append(","); sb.append(render(a[i])); }
+      return sb.append("]").toString();
+    }
+    if (v instanceof List) {
+      List<?> a = (List<?>) v; StringBuilder sb = new StringBuilder("[");
+      for (int i = 0; i < a.size(); i++) { if (i > 0) sb.append(","); sb.append(render(a.get(i))); }
+      return sb.append("]").toString();
+    }
+    // An unrecognised return type (ListNode, a custom class) goes out as a JSON string rather
+    // than as a bare token that would make the whole document malformed. It stays readable.
+    return quote(String.valueOf(v));
+  }
+
+  /** A JSON string literal: the escaped value wrapped in quotes. */
+  static String quote(String s) {
+    return (char) 34 + esc(s) + (char) 34;
   }
 
   static boolean same(Object got, Object expected) {
@@ -151,10 +196,44 @@ public class Main {
     return nested(v);
   }
 
+  /**
+   * Strip the surrounding quotes, then undo JSON string escaping.
+   *
+   * The wire format is JSON, so a tab arrives as the two characters backslash-t and a quote
+   * inside a string arrives backslash-quote. Stripping the surrounding quotes alone delivered
+   * those escapes verbatim, which made every argument containing a quote, backslash or control
+   * character wrong — a tab came through as two characters, so a string could not be split on
+   * whitespace and any problem whose input is a JSON string was graded against mangled data.
+   *
+   * Written with numeric char codes rather than backslash literals, for the same reason as
+   * `esc`: a backslash literal must survive several escaping layers and did not.
+   */
   static String unquote(String s) {
     s = s.trim();
-    if (s.length() >= 2 && s.charAt(0) == 34 && s.charAt(s.length() - 1) == 34) return s.substring(1, s.length() - 1);
-    return s;
+    if (s.length() >= 2 && s.charAt(0) == 34 && s.charAt(s.length() - 1) == 34) return unescape(s.substring(1, s.length() - 1));
+    return unescape(s);
+  }
+
+  /** Decode the JSON escapes in an already-unquoted string. */
+  static String unescape(String s) {
+    if (s.indexOf(92) < 0) return s;
+    StringBuilder out = new StringBuilder(s.length());
+    for (int i = 0; i < s.length(); i++) {
+      char ch = s.charAt(i);
+      if (ch != 92 || i + 1 >= s.length()) { out.append(ch); continue; }
+      char n = s.charAt(++i);
+      if (n == 110) out.append((char) 10);
+      else if (n == 116) out.append((char) 9);
+      else if (n == 114) out.append((char) 13);
+      else if (n == 98) out.append((char) 8);
+      else if (n == 102) out.append((char) 12);
+      else if (n == 117 && i + 4 < s.length()) {
+        out.append((char) Integer.parseInt(s.substring(i + 1, i + 5), 16));
+        i += 4;
+      } else if (n == 47 || n == 34 || n == 92) out.append(n);
+      else out.append(n);
+    }
+    return out.toString();
   }
 
   /** Split a bracketed list into top-level elements, respecting nesting. */
@@ -163,10 +242,15 @@ public class Main {
     if (s.startsWith("[")) s = s.substring(1, s.length() - 1);
     if (s.trim().isEmpty()) return new String[0];
     List<String> out = new ArrayList<>();
-    int depth = 0; boolean inStr = false; StringBuilder cur = new StringBuilder();
+    int depth = 0; boolean inStr = false; boolean esc = false; StringBuilder cur = new StringBuilder();
     for (int i = 0; i < s.length(); i++) {
       char ch = s.charAt(i);
-      if (ch == 34) { inStr = !inStr; cur.append(ch); }
+      // A backslash escapes the next character, so an escaped quote must NOT toggle inStr and
+      // an escaped bracket must not change depth. Without this, `"a\"b"` toggled inStr twice
+      // and the following comma was swallowed as string content, merging two arguments.
+      if (esc) { esc = false; cur.append(ch); }
+      else if (ch == 92) { esc = true; cur.append(ch); }
+      else if (ch == 34) { inStr = !inStr; cur.append(ch); }
       else if (!inStr && (ch == '[' || ch == '{')) { depth++; cur.append(ch); }
       else if (!inStr && (ch == ']' || ch == '}')) { depth--; cur.append(ch); }
       else if (!inStr && ch == ',' && depth == 0) { out.add(cur.toString()); cur.setLength(0); }
