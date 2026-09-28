@@ -186,6 +186,13 @@ textarea { font-family: var(--mono); resize: vertical; }
   padding: 0;
   display: flex;
   flex-direction: column;
+  /* Pinned to the viewport rather than stretched to the grid row. Without this the sidebar is
+     as tall as the main pane, so on a short window it is taller than the screen and the whole
+     page scrolls — which carries the brand off the top and makes `.nav-scroll` dead code,
+     since there is nothing to bound it. */
+  position: sticky;
+  top: 0;
+  height: 100vh;
 }
 
 .brand {
@@ -234,6 +241,23 @@ textarea { font-family: var(--mono); resize: vertical; }
 }
 .nav button.active .count { color: var(--signal); }
 
+/* The scrollable part of the sidebar.
+ *
+ * `min-height: 0` is load-bearing: a flex child defaults to `min-height: auto`, which refuses
+ * to shrink below its content, so without it the sections would push the footer off-screen
+ * instead of scrolling.
+ */
+.nav-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.nav-section { display: flex; flex-direction: column; }
+
+.nav-section + .nav-section { margin-top: 4px; }
+
 .side-label {
   font-size: 9.5px;
   font-weight: 700;
@@ -241,8 +265,15 @@ textarea { font-family: var(--mono); resize: vertical; }
   text-transform: uppercase;
   color: var(--faint);
   padding: 16px 16px 6px;
+  margin-top: 0;
+}
+
+/* The first label sits directly under the brand's bottom border, so it needs no rule of its
+ * own — two hairlines 16px apart read as a mistake. Every later section gets the divider.
+ */
+.nav-section + .nav-section .side-label {
   border-top: 1px solid var(--rule);
-  margin-top: 8px;
+  margin-top: 10px;
 }
 
 .sidebar-foot {
@@ -1202,7 +1233,11 @@ pre.notice {
     width: 260px;
     max-width: 82vw;
     z-index: 40;
-    overflow-y: auto;
+    /* `hidden`, not `auto`: the fixed height comes from `top`/`bottom`, and `.nav-scroll`
+       handles the scrolling inside it. An `auto` here would nest a second scroll container,
+       so the drawer could scroll as a whole AND scroll its sections, and the brand would
+       drift off the top. */
+    overflow: hidden;
     transform: translateX(-100%);
     transition: transform 140ms ease-out;
     border-right: 1px solid var(--rule-2);

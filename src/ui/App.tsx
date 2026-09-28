@@ -28,6 +28,55 @@ import {
 
 const LISTS = ["blind75", "neetcode150", "neetcode250", "leetcode75", "topInterview150"] as const;
 
+/**
+ * The sidebar's sections, in order.
+ *
+ * A flat list of eleven entries put `Fundamentals`, `Design` and `Build` between `Roadmap` and
+ * `Problems` with nothing to say they belong together, and left `Models` and `Settings` —
+ * configuration — indistinguishable from the things you actually practise. The grouping is the
+ * fix: each section answers a different question.
+ *
+ * `Overview` leads the first section rather than sitting outside it, so there is no unlabelled
+ * orphan at the top of the list.
+ *
+ * There is deliberately NO `Problems` entry. It used to exist and pointed at the same `list`
+ * view as the list buttons below it, with `activeList` unchanged — so it rendered exactly the
+ * active list under a generic heading, which is the single most confusing thing about the old
+ * layout. The lists are the entry points.
+ */
+const NAV: Array<{ label: string; items: Array<readonly [View, string]> }> = [
+  {
+    label: "Practice",
+    items: [
+      ["overview", "Overview"],
+      ["review", "Review"],
+      ["roadmap", "Roadmap"],
+    ],
+  },
+  {
+    label: "Tracks",
+    items: [
+      ["fundamentals", "Fundamentals"],
+      ["design", "Design"],
+      ["components", "Build"],
+    ],
+  },
+  {
+    label: "Analysis",
+    items: [
+      ["weakness", "Weakness"],
+      ["companies", "Companies"],
+    ],
+  },
+  {
+    label: "Setup",
+    items: [
+      ["models", "Models"],
+      ["settings", "Settings"],
+    ],
+  },
+];
+
 const STARTERS: Record<string, string> = {
   python3: "class Solution:\n    def solve(self):\n        pass\n",
 };
@@ -139,64 +188,64 @@ export function App() {
           <span>Prep</span>
         </div>
 
-        <nav className="nav">
-          {(
-            [
-              ["overview", "Overview"],
-              ["review", "Review"],
-              ["roadmap", "Roadmap"],
-              ["fundamentals", "Fundamentals"],
-              ["design", "Design"],
-              ["components", "Build"],
-              ["list", "Problems"],
-              ["weakness", "Weakness"],
-              ["companies", "Companies"],
-              ["models", "Models"],
-              ["settings", "Settings"],
-            ] as const
-          ).map(([id, label]) => (
-            <button
-              key={id}
-              className={view === id ? "active" : ""}
-              onClick={() => {
-                // An explicit nav click clears the Design bridge's target, so Build opens on
-                // the default rather than re-opening whatever round was last finished.
-                if (id === "components") setComponentSlug(null);
-                setView(id);
-                setNavOpen(false);
-              }}
-            >
-              <span>{label}</span>
-              {id === "review" && due.length > 0 ? <span className="count">{due.length}</span> : null}
-            </button>
+        {/*
+          The sections scroll, the brand and footer do not. With five sections the list is
+          taller than a short viewport, and letting the whole sidebar scroll would carry the
+          brand and the problem count off-screen with it.
+        */}
+        <div className="nav-scroll">
+          {NAV.map((section) => (
+            <div key={section.label} className="nav-section">
+              <div className="side-label">{section.label}</div>
+              <nav className="nav">
+                {section.items.map(([id, label]) => (
+                  <button
+                    key={id}
+                    className={view === id ? "active" : ""}
+                    onClick={() => {
+                      // An explicit nav click clears the Design bridge's target, so Build opens
+                      // on the default rather than re-opening whatever round was last finished.
+                      if (id === "components") setComponentSlug(null);
+                      setView(id);
+                      setNavOpen(false);
+                    }}
+                  >
+                    <span>{label}</span>
+                    {id === "review" && due.length > 0 ? <span className="count">{due.length}</span> : null}
+                  </button>
+                ))}
+              </nav>
+            </div>
           ))}
-        </nav>
 
-        <div className="side-label">Lists</div>
-        <nav className="nav">
-          {LISTS.map((l) => {
-            const s = lists.find((x) => x.name === l);
-            return (
-              <button
-                key={l}
-                className={view === "list" && activeList === l ? "active" : ""}
-                onClick={() => {
-                  setActiveList(l);
-                  setView("list");
-                  setNavOpen(false);
-                }}
-              >
-                <span>{l}</span>
-                {s ? (
-                  <span className="count" title={s.locked > 0 ? `${s.locked} require LeetCode Premium` : undefined}>
-                    {s.solved}/{s.total}
-                    {s.locked > 0 ? <span className="locked"> ·{s.locked}P</span> : null}
-                  </span>
-                ) : null}
-              </button>
-            );
-          })}
-        </nav>
+          <div className="nav-section">
+            <div className="side-label">Lists</div>
+            <nav className="nav">
+              {LISTS.map((l) => {
+                const s = lists.find((x) => x.name === l);
+                return (
+                  <button
+                    key={l}
+                    className={view === "list" && activeList === l ? "active" : ""}
+                    onClick={() => {
+                      setActiveList(l);
+                      setView("list");
+                      setNavOpen(false);
+                    }}
+                  >
+                    <span>{l}</span>
+                    {s ? (
+                      <span className="count" title={s.locked > 0 ? `${s.locked} require LeetCode Premium` : undefined}>
+                        {s.solved}/{s.total}
+                        {s.locked > 0 ? <span className="locked"> ·{s.locked}P</span> : null}
+                      </span>
+                    ) : null}
+                  </button>
+                );
+              })}
+            </nav>
+          </div>
+        </div>
 
         <div className="sidebar-foot">{catalog.toLocaleString()} problems local</div>
       </aside>
