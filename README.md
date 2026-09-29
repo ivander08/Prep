@@ -148,6 +148,11 @@ The threshold is `GRADE_LIMIT_SECONDS`, and it is the *same constant* the stopwa
 displays. Two literals would drift: change one and the UI shows a boundary the grader no longer
 uses.
 
+The queue that comes back is ordered weakest-first, so the answer to "what should I work on" is
+the top of the page rather than something you have to derive:
+
+![The Roadmap: patterns grouped by technique, ordered weakest-first, with a strength bar and progress per pattern](docs/screens/roadmap.png)
+
 ### Why the interval is capped at 90 days
 
 `ts-fsrs` ships `maximum_interval: 36500` — about 100 years. Measured, that produces:
@@ -166,8 +171,6 @@ in a test.
 
 ### Scheduling the *technique*, not just the problem
 
-<img src="docs/screens/weakness.png" alt="The Weakness view: per-pattern Elo as a graticule, plus 12 weeks of progress bars and a hint-dependence table" align="right" width="440" />
-
 `pattern_mastery` computes an Elo per pattern, but the schedule used to be per-problem only —
 `cards` is keyed by `qid`. So the data model believed patterns mattered and the schedule did not,
 which is exactly the review-burnout shape two independent sources describe: *"100 problems to
@@ -181,7 +184,7 @@ through the same `reviewItem` call everything else uses. No self-rating is intro
 
 A pattern with no passed problem is excluded rather than scheduled off no evidence.
 
-<br clear="right" />
+![The Weakness view: per-pattern Elo as a graticule, twelve weeks of progress bars, and a hint-dependence table](docs/screens/weakness.png)
 
 ---
 
@@ -261,8 +264,6 @@ what will be kept, and requires typing `RESET`.
 
 ## Six tracks, one scheduler
 
-<img src="docs/screens/review.png" alt="The Review queue: 11 items due across 7 kinds, with filter chips per track" align="right" width="420" />
-
 Every track feeds the same review queue and the same behavioural grade. What differs is how
 correctness is decided.
 
@@ -275,20 +276,20 @@ correctness is decided.
 | **Design** | rubric + verbatim quotes from your own writing |
 | **Behavioral / Stack** | rubric + verbatim quotes from your own writing |
 
+![The Review queue: 11 items due across 7 kinds, with a filter chip per track](docs/screens/review.png)
+
 The non-DSA tracks live in `items` + `item_cards` rather than `cards`, because DSA review is keyed
 by `qid` and driven by execution outcome while everything else is keyed by `item_id`. They share
 one scheduler and one grade derivation — `reviewItem` mirrors `reviewCard` exactly, differing only
 in the table — but conflating the tables is what makes other tools' SRS feel wrong.
 
-<br clear="right" />
-
 ### SQL 50 — graded by execution
-
-<img src="docs/screens/sql.png" alt="The SQL view: schema, sample rows, and the query editor" align="right" width="420" />
 
 Your query and a hand-written reference query each run against **their own freshly seeded
 in-memory SQLite database**, built from the problem's own sample data. The two result sets are
 compared as a **multiset** — row order, column order, and column names don't matter.
+
+![The SQL view after a pass: the problem's schema and sample rows above the editor, then the verdict, the submitted rows and the expected rows](docs/screens/sql.png)
 
 The reference query is the oracle, not the statement's rendered `Output:` table. Parsing those
 ASCII tables would be a second parser to get wrong, and one of them **is** wrong:
@@ -310,8 +311,6 @@ Three things the fetch turned up that the code has to handle:
 `catalog.test.ts` proves every one of the 50 reference queries executes against the real stored
 seed data and returns the rows the statement publishes. A wrong oracle would grade a correct
 answer as wrong — worse than not grading at all — so the content is tested, not trusted.
-
-<br clear="right" />
 
 ### Fundamentals — language before algorithms
 
@@ -643,8 +642,6 @@ downstream**.
 
 ## Desktop app
 
-<img src="docs/screens/roadmap.png" alt="The Roadmap: patterns ordered by weakness, with progress per technique" align="right" width="420" />
-
 The same server, wrapped in a native window. The server is compiled to a standalone sidecar and
 shipped with its resources beside it.
 
@@ -709,8 +706,6 @@ The Windows installer uses `embedBootstrapper` for WebView2: ~1.8 MB, and the in
 offline. `offlineInstaller` (~127 MB) and `fixedVersion` (~180 MB) buy nothing here.
 
 </details>
-
-<br clear="right" />
 
 ---
 
