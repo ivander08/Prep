@@ -21,7 +21,7 @@ import { hintCeiling, ceilingReason } from "./tutor/policy.ts";
 import { fetchCatalog, allRoleModels, setRoleModel, ROLE_LABEL, ROLES } from "./models.ts";
 import { masteryReport, hintDependence, studyStats, recomputeMastery } from "./mastery.ts";
 import { listDesignPrompts, getDesignPrompt } from "./design/catalog.ts";
-import { designTurn, gradeDesign, latestOpenSession, loadSession, saveDraft, startDesignSession } from "./design/index.ts";
+import { designTurn, gradeDesign, latestOpenSession, loadSession, saveDraft, saveSketch, startDesignSession } from "./design/index.ts";
 import { GROUP_LABEL, GROUP_ORDER, getDesignConcept, listDesignConcepts } from "./design/concepts.ts";
 import { PROBE_FAMILIES } from "./design/policy.ts";
 import {
@@ -728,14 +728,28 @@ app.post("/api/design/:id/draft", async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as {
     phase?: string;
     text?: string;
-    sketchPng?: string | null;
   };
   if (typeof body.phase !== "string" || typeof body.text !== "string") {
     return c.json({ error: "phase and text are required" }, 400);
   }
 
   try {
-    saveDraft(id, body.phase, body.text, body.sketchPng);
+    saveDraft(id, body.phase, body.text);
+    return c.json({ ok: true });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return c.json({ error: msg }, msg.startsWith("unknown design session") ? 404 : 400);
+  }
+});
+
+/** Persist the sketch pad. Round-level, so it does not ride on a phase draft. */
+app.post("/api/design/:id/sketch", async (c) => {
+  const id = Number(c.req.param("id"));
+  if (!Number.isInteger(id)) return c.json({ error: "bad id" }, 400);
+  const body = (await c.req.json().catch(() => ({}))) as { shapes?: unknown };
+
+  try {
+    saveSketch(id, body.shapes);
     return c.json({ ok: true });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

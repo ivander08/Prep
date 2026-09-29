@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api";
+import { Dialog } from "./Dialog";
 
 export type TutorStatus = {
   ceiling: number;
@@ -79,6 +80,7 @@ export function TutorPanel({
   const [busy, setBusy] = useState(false);
   const [reviewing, setReviewing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmUnlock, setConfirmUnlock] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
 
   const refreshStatus = useCallback(async () => {
@@ -160,14 +162,9 @@ export function TutorPanel({
     }
   }, [lastRun, reviewing, slug]);
 
+  /** The confirmed unlock. The dialog is the confirmation; this no longer asks. */
   const unlock = useCallback(async () => {
-    if (
-      !confirm(
-        "Unlock the full solution for this problem?\n\nThis is recorded, and the review grade for this problem becomes 'Again'.",
-      )
-    ) {
-      return;
-    }
+    setConfirmUnlock(false);
     try {
       await api(`/api/tutor/${slug}/unlock`, { method: "POST" });
       void refreshStatus();
@@ -200,7 +197,7 @@ export function TutorPanel({
             </button>
           ) : null}
           {status && status.ceiling < 6 ? (
-            <button className="tiny danger" onClick={() => void unlock()}>
+            <button className="tiny danger" onClick={() => setConfirmUnlock(true)}>
               Unlock solution
             </button>
           ) : null}
@@ -304,6 +301,18 @@ export function TutorPanel({
           {busy ? "…" : "Ask"}
         </button>
       </div>
+
+      {confirmUnlock ? (
+        <Dialog
+          title="Unlock the full solution?"
+          confirmLabel="Unlock"
+          danger
+          onConfirm={() => void unlock()}
+          onCancel={() => setConfirmUnlock(false)}
+        >
+          This is recorded, and the review grade for this problem becomes “Again”.
+        </Dialog>
+      ) : null}
     </div>
   );
 }

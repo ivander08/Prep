@@ -78,7 +78,7 @@ export type DesignSessionRow = {
   ended_at: string | null;
   drafts: string;
   transcript: string;
-  sketch_png: string | null;
+  sketch_shapes: string | null;
   probe_level: number;
   seconds: number | null;
   scores: string | null;
@@ -86,6 +86,17 @@ export type DesignSessionRow = {
   model: string | null;
   cost_idr: number | null;
 };
+
+/**
+ * One drawing primitive on the sketch pad.
+ *
+ * Declared here and mirrored in `src/ui/api.ts`, the way every other cross-boundary type in this
+ * app is: the two runtimes share no module, and the client's copy is the hand-maintained mirror.
+ */
+export type SketchShape =
+  | { kind: "rect"; x: number; y: number; w: number; h: number }
+  | { kind: "arrow"; x1: number; y1: number; x2: number; y2: number }
+  | { kind: "label"; x: number; y: number; text: string };
 
 export type DesignSession = {
   id: number;
@@ -97,6 +108,7 @@ export type DesignSession = {
   probesAsked: number;
   drafts: Record<string, string>;
   transcript: TranscriptEntry[];
+  sketch: SketchShape[];
   seconds: number | null;
   startedAt: string;
   endedAt: string | null;
@@ -121,6 +133,43 @@ function parseDrafts(raw: string): Record<string, string> {
     return out;
   } catch {
     return {};
+  }
+}
+
+const finite = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+
+/**
+ * The valid subset of a value claiming to be a shape list.
+ *
+ * Every field is checked rather than trusted: these numbers are interpolated straight into SVG
+ * geometry attributes, and an unparseable shape would render as a broken or missing element with no
+ * error anywhere. The list is a working aid, so dropping a bad entry is better than rejecting the
+ * whole sketch. Returns `[]` for anything that is not an array.
+ */
+function sanitiseShapes(value: unknown): SketchShape[] {
+  if (!Array.isArray(value)) return [];
+  const out: SketchShape[] = [];
+  for (const s of value) {
+    if (typeof s !== "object" || s === null) continue;
+    const o = s as Record<string, unknown>;
+    if (o.kind === "rect" && finite(o.x) && finite(o.y) && finite(o.w) && finite(o.h)) {
+      out.push({ kind: "rect", x: o.x, y: o.y, w: o.w, h: o.h });
+    } else if (o.kind === "arrow" && finite(o.x1) && finite(o.y1) && finite(o.x2) && finite(o.y2)) {
+      out.push({ kind: "arrow", x1: o.x1, y1: o.y1, x2: o.x2, y2: o.y2 });
+    } else if (o.kind === "label" && finite(o.x) && finite(o.y) && typeof o.text === "string") {
+      const text = o.text.trim();
+      if (text.length > 0) out.push({ kind: "label", x: o.x, y: o.y, text });
+    }
+  }
+  return out;
+}
+
+function parseShapes(raw: string | null): SketchShape[] {
+  if (!raw) return [];
+  try {
+    return sanitiseShapes(JSON.parse(raw) as unknown);
+  } catch {
+    return [];
   }
 }
 
@@ -190,6 +239,7 @@ export function loadSession(id: number): DesignSession {
     probesAsked: countProbes(transcript),
     drafts,
     transcript,
+    sketch: parseShapes(row.sketch_shapes),
     seconds: row.seconds,
     startedAt: row.started_at,
     endedAt: row.ended_at,
@@ -767,24 +817,29 @@ export function startDesignSession(slug: string): number {
 }
 
 /** Persist one phase draft. */
-export function saveDraft(
-  id: number,
-  phase: string,
-  text: string,
-  sketchPng?: string | null,
-): void {
+export function saveDraft(id: number, phase: string, text: string): void {
   if (!isPhase(phase)) throw new Error(`unknown design phase: ${phase}`);
   const row = readRow(id);
   const drafts = parseDrafts(row.drafts);
   drafts[phase] = text;
-
-  if (sketchPng !== undefined) {
-    db.run("UPDATE design_sessions SET drafts = ?, sketch_png = ? WHERE id = ?", [
-      JSON.stringify(drafts),
-      sketchPng,
-      id,
-    ]);
-    return;
-  }
   db.run("UPDATE design_sessions SET drafts = ? WHERE id = ?", [JSON.stringify(drafts), id]);
+}
+
+/**
+ * Persist the sketch pad's shapes.
+ *
+ * A separate column and a separate call from `saveDraft` because the sketch belongs to the ROUND,
+ * not to a phase. Riding it on the `highlevel` draft made the commit send `drafts.highlevel` at a
+ * moment when the textarea may not have been blurred yet, which wrote a stale body alongside a
+ * fresh sketch.
+ *
+ * `readRow` first, so an unknown session id throws the same `unknown design session: N` the draft
+ * path does and the route maps it to 404.
+ */
+export function saveSketch(id: number, shapes: unknown): void {
+  readRow(id);
+  db.run("UPDATE design_sessions SET sketch_shapes = ? WHERE id = ?", [
+    JSON.stringify(sanitiseShapes(shapes)),
+    id,
+  ]);
 }

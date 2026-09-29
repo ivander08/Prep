@@ -225,6 +225,12 @@ export type DesignTranscriptEntry = {
   probeName?: string | null;
 };
 
+/** One drawing primitive on the sketch pad. Mirrors the server's `SketchShape`. */
+export type SketchShape =
+  | { kind: "rect"; x: number; y: number; w: number; h: number }
+  | { kind: "arrow"; x1: number; y1: number; x2: number; y2: number }
+  | { kind: "label"; x: number; y: number; text: string };
+
 export type DesignSession = {
   id: number;
   slug: string;
@@ -235,6 +241,7 @@ export type DesignSession = {
   probesAsked: number;
   drafts: Record<string, string>;
   transcript: DesignTranscriptEntry[];
+  sketch: SketchShape[];
   seconds: number | null;
   startedAt: string;
   endedAt: string | null;

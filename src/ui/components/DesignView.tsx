@@ -14,6 +14,7 @@ import {
   type DesignTranscriptEntry,
   type DesignTurnResult,
   type RubricDimension,
+  type SketchShape,
 } from "../api";
 import { formatElapsed, isOverLimit, useStopwatchVisible } from "./Stopwatch";
 import { Markdown } from "./Markdown";
@@ -103,7 +104,7 @@ export function DesignView({
   const [error, setError] = useState<string | null>(null);
   const [startedAt, setStartedAt] = useState(() => Date.now());
   const [showTimer, setShowTimer] = useStopwatchVisible();
-  const [sketchPng, setSketchPng] = useState<string | null>(null);
+  const [sketch, setSketch] = useState<SketchShape[]>([]);
   const scroller = useRef<HTMLDivElement | null>(null);
   /**
    * A once-per-second tick, so the elapsed counters actually advance.
@@ -181,7 +182,8 @@ export function DesignView({
    *
    * The transcript is rebuilt from the stored entries rather than being kept only in React
    * state, so a restored round shows the conversation it actually had — including the fact
-   * that a leak was refused, which is the most useful thing the transcript records.
+   * that a leak was refused, which is the most useful thing the transcript records. The sketch
+   * is restored the same way, as shapes rather than a bitmap, so it is still editable.
    */
   const hydrate = useCallback((s: DesignSession) => {
     setActiveSlug(s.slug);
@@ -213,7 +215,7 @@ export function DesignView({
     // rather than however long ago the page was opened.
     setStartedAt(new Date(s.startedAt).getTime());
     setScores(null);
-    setSketchPng(null);
+    setSketch(s.sketch);
   }, []);
 
   /**
@@ -320,21 +322,22 @@ export function DesignView({
   );
 
   /**
-   * Persist the sketch alongside the high-level draft.
+   * Persist the sketch as shapes.
    *
-   * Keyed off the session id rather than off `drafts`, because the sketch is committed on
-   * pointer-up and the current textarea value may not have been blurred yet — reading
-   * `drafts.highlevel` here would save a stale body with a fresh image.
+   * The parent owns the list, so this both stores it locally and writes it through. Committed once
+   * per settled gesture rather than per pixel, which is what keeps a drag from being one request
+   * per pointer-move.
    */
-  const onSketchCommit = useCallback(
-    (png: string | null) => {
+  const onSketchChange = useCallback(
+    (shapes: SketchShape[]) => {
+      setSketch(shapes);
       if (!session) return;
-      void api(`/api/design/${session.id}/draft`, {
+      void api(`/api/design/${session.id}/sketch`, {
         method: "POST",
-        body: JSON.stringify({ phase: "highlevel", text: drafts.highlevel ?? "", sketchPng: png }),
+        body: JSON.stringify({ shapes }),
       }).catch((e) => setError(String(e)));
     },
-    [session, drafts.highlevel],
+    [session],
   );
 
   const ask = useCallback(async () => {
@@ -520,7 +523,7 @@ export function DesignView({
                     onBlur={(e) => void saveDraft(p.id, e.target.value)}
                   />
                   {p.id === "highlevel" ? (
-                    <SketchPad onChange={setSketchPng} onCommit={onSketchCommit} />
+                    <SketchPad value={sketch} onChange={onSketchChange} />
                   ) : null}
                 </div>
               ))}

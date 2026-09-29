@@ -1668,6 +1668,43 @@ pre.notice {
   cursor: crosshair;
 }
 
+/* --- Dialog --------------------------------------------------------------- */
+
+/* z-index 50: above the mobile drawer's 40 and its backdrop's 35, and above the sticky
+   topbar's 30. Outside any media query, unlike `.nav-backdrop`. */
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.dialog {
+  background: var(--panel);
+  border: 1px solid var(--rule-2);
+  border-radius: 0;
+  padding: 18px 20px;
+  width: 100%;
+  max-width: 420px;
+}
+
+.dialog-title {
+  font-family: var(--din);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--signal);
+  margin: 0 0 10px;
+}
+
+.dialog-body { font-size: 13px; color: var(--text); margin-bottom: 14px; }
+.dialog-actions { display: flex; gap: 8px; justify-content: flex-end; }
+
 .design-results {
   margin-top: 16px;
   padding: 14px 16px;
