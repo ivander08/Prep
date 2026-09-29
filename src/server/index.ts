@@ -22,6 +22,11 @@ import { fetchCatalog, allRoleModels, setRoleModel, ROLE_LABEL, ROLES } from "./
 import { masteryReport, hintDependence, studyStats, recomputeMastery } from "./mastery.ts";
 import { listDesignPrompts, getDesignPrompt } from "./design/catalog.ts";
 import { designTurn, gradeDesign, latestOpenSession, loadSession, saveDraft, startDesignSession } from "./design/index.ts";
+import { GROUP_LABEL, GROUP_ORDER, getDesignConcept, listDesignConcepts } from "./design/concepts.ts";
+import { PROBE_FAMILIES } from "./design/policy.ts";
+import { getPatternRefView, patternPriorities } from "./reference.ts";
+import { streakStats } from "./streak.ts";
+import { evaluateMilestones } from "./milestones.ts";
 import {
   conceptModules,
   getConcept,
@@ -643,6 +648,39 @@ app.get("/api/design/resume", (c) => {
   return c.json({ session: latestOpenSession() });
 });
 
+/**
+ * The design concept library, grouped. Bodies are fetched per concept, not listed: the list is
+ * browsed by title and summary, and 61 bodies is not a payload to send for a list view.
+ */
+app.get("/api/design/concepts", (c) => {
+  const all = listDesignConcepts();
+  const grouped = GROUP_ORDER.map((group) => ({
+    group,
+    label: GROUP_LABEL[group],
+    concepts: all.filter((x) => x.group === group),
+  })).filter((g) => g.concepts.length > 0);
+  return c.json({ groups: grouped, total: all.length });
+});
+
+/**
+ * One concept's body, plus the probe families it answers named rather than numbered.
+ *
+ * Registered BEFORE `/api/design/:id` for the same reason `/api/design/resume` is: Hono matches
+ * in registration order, so a later literal route would be captured by the parameter route and
+ * rejected as a bad id. The `/item` route does not strictly need the ordering (two segments),
+ * but registering both together keeps the rule visible.
+ */
+app.get("/api/design/concepts/item", (c) => {
+  const slug = c.req.query("slug");
+  if (!slug) return c.json({ error: "slug query parameter is required" }, 400);
+  const concept = getDesignConcept(slug);
+  if (!concept) return c.json({ error: "unknown concept" }, 404);
+  return c.json({
+    concept,
+    probes: concept.probeFamilies.map((i) => PROBE_FAMILIES[i]?.name ?? null),
+  });
+});
+
 app.get("/api/design/:id", (c) => {
   const id = Number(c.req.param("id"));
   if (!Number.isInteger(id)) return c.json({ error: "bad id" }, 400);
@@ -792,6 +830,15 @@ app.post("/api/mastery/recompute", (c) => {
   return c.json({ ok: true, patterns: n });
 });
 
+/** The daily streak, derived from the cards that were scheduled. */
+app.get("/api/streak", (c) => c.json(streakStats()));
+
+/**
+ * Every milestone with its earned state. Evaluates and awards on read, so a milestone reached
+ * while the server was down still lands here.
+ */
+app.get("/api/milestones", (c) => c.json({ milestones: evaluateMilestones() }));
+
 // ---------------------------------------------------------------------------
 // Settings + reset
 // ---------------------------------------------------------------------------
@@ -837,6 +884,7 @@ app.get("/api/reset/preview", (c) => {
       tutor_turns: count("tutor_turns"),
       pattern_mastery: count("pattern_mastery"),
       item_cards: count("item_cards"),
+      milestones: count("milestones"),
     },
     keeps: {
       problems: count("problems"),
@@ -867,7 +915,7 @@ app.post("/api/reset", async (c) => {
 
   const cleared: Record<string, number> = {};
   db.transaction(() => {
-    for (const t of ["tutor_turns", "attempts", "cards", "item_cards", "pattern_mastery"]) {
+    for (const t of ["tutor_turns", "attempts", "cards", "item_cards", "pattern_mastery", "milestones"]) {
       const n = db.query<{ n: number }, []>(`SELECT COUNT(*) AS n FROM ${t}`).get()?.n ?? 0;
       db.run(`DELETE FROM ${t}`);
       cleared[t] = n;
@@ -961,18 +1009,45 @@ app.get("/api/roadmap", (c) => {
       .map((m) => [m.pattern, m]),
   );
 
+  const priorities = patternPriorities();
+
   const patterns = [...byPattern.entries()].map(([pattern, problems]) => ({
     pattern,
     problems,
     total: problems.length,
     solved: problems.filter((p) => p.solved === 1).length,
     elo: mastery.get(pattern)?.elo ?? null,
+    priority: priorities[pattern] ?? null,
   }));
 
-  // Patterns with no attempts sort first so the roadmap opens on what needs work.
-  patterns.sort((a, b) => (a.elo ?? 0) - (b.elo ?? 0));
+  const RANK = { High: 0, Mid: 1, Low: 2 } as const;
+  // High-weight patterns first, then weakest-first inside each band. A pattern with no card
+  // sorts last: an unknown weight must not outrank a known High one. Elo stays the tiebreak,
+  // so the roadmap still opens on what needs work within a band.
+  patterns.sort((a, b) => {
+    const ra = a.priority ? RANK[a.priority] : 3;
+    const rb = b.priority ? RANK[b.priority] : 3;
+    return ra - rb || (a.elo ?? 0) - (b.elo ?? 0);
+  });
 
   return c.json({ list: listName, patterns });
+});
+
+/**
+ * The reference card for one pattern.
+ *
+ * `pattern` is a QUERY parameter, not a path segment: pattern names contain `&` and `/`
+ * ("Arrays & Hashing", "Heap / Priority Queue"), so a `:pattern` route would need the client
+ * to double-encode and would still 404 on a mis-encoded ampersand. Same reason the concept
+ * endpoints are addressed by query.
+ *
+ * A pattern with no card returns `200 { ref: null }`, not 404 — "no card yet" is a normal state
+ * because the pattern vocabulary is ingested, and the client renders nothing for it.
+ */
+app.get("/api/reference/pattern", (c) => {
+  const pattern = c.req.query("pattern");
+  if (!pattern) return c.json({ error: "pattern is required" }, 400);
+  return c.json({ ref: getPatternRefView(pattern, c.req.query("list") ?? "neetcode150") });
 });
 
 app.get("/api/companies", (c) => {

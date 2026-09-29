@@ -362,6 +362,49 @@ h2 {
 .readout .v.fail { color: var(--fail); }
 .readout .unit { font-size: 11px; color: var(--faint); margin-left: 3px; }
 
+/* The activity calendar. A CSS grid rather than SVG: 364 cells is a few KB of DOM and the
+   layout is one rule. Columns are weeks (`grid-auto-flow: column` over 7 rows), so each column
+   is a week and the grid's own flow does the chunking the server deliberately did not. */
+.streak-cal { margin-top: 12px; }
+.streak-grid {
+  display: grid;
+  grid-template-rows: repeat(7, 13px);
+  grid-auto-flow: column;
+  grid-auto-columns: 13px;
+  gap: 3px;
+  /* Sized to its content and left-aligned, so a short history sits under the readout rather
+     than floating against the right edge of a 1,400px page. */
+  width: max-content;
+  max-width: 100%;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+.streak-cell {
+  width: 13px;
+  height: 13px;
+  border: 1px solid var(--rule);
+  background: var(--ink);
+  display: inline-block;
+}
+.streak-cell.l0 { background: var(--ink); }
+.streak-cell.l1 { background: #3b3a24; border-color: #4a4828; }
+.streak-cell.l2 { background: #6d6130; border-color: #7d6f38; }
+.streak-cell.l3 { background: #a98d3c; border-color: #b89a44; }
+.streak-cell.l4 { background: var(--signal); border-color: var(--signal); }
+/* Today's cell is outlined rather than recoloured, so an inactive today is still findable. */
+.streak-cell.today { outline: 1px solid var(--signal-dim); outline-offset: 1px; }
+
+.streak-legend {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: max-content;
+  max-width: 100%;
+  margin-top: 6px;
+}
+.streak-legend-scale { display: inline-flex; align-items: center; gap: 3px; }
+.streak-legend-scale .streak-cell { width: 11px; height: 11px; }
+
 /* The attempt stopwatch. Tabular figures so the digits do not jitter as they change, and a
    single amber state for "past the limit that separates Easy from Good". */
 .stopwatch {
@@ -451,6 +494,12 @@ pre.notice {
 .problem-row.solved .qid { color: var(--pass); }
 .problem-row.solved .title { color: var(--dim); }
 
+/* A milestone row. The qid column carries the check rather than a number, so earned rows are
+   scannable down the left edge without reading a single title. */
+.problem-row.milestone .qid { font-size: 13px; }
+.problem-row.milestone.earned .qid { color: var(--pass); }
+.problem-row.milestone.earned .title { color: var(--dim); }
+
 /* Difficulty as a small caps tag, not a pill. */
 .badge {
   font-family: var(--din);
@@ -467,6 +516,12 @@ pre.notice {
 .badge.Easy { color: var(--easy); }
 .badge.Medium { color: var(--medium); }
 .badge.Hard { color: var(--hard); }
+
+/* Interview weight, from the pattern reference cards. Reads as a dimmer, wider scale than
+   difficulty: High is the only one that earns the amber. */
+.badge.High { color: var(--warn); min-width: 0; text-align: left; }
+.badge.Mid { color: var(--dim); min-width: 0; text-align: left; }
+.badge.Low { color: var(--faint); min-width: 0; text-align: left; }
 
 /* Progress reads as a measured bar rather than a sentence — the same idea as the
    graticule, at a coarser resolution. */
@@ -557,7 +612,12 @@ pre.notice {
 
 .pattern-head {
   display: grid;
-  grid-template-columns: 16px minmax(150px, 1fr) 52px minmax(90px, 1.2fr) 62px;
+  /* caret | weight | name | elo | track | tally.
+     The weight column is `max-content` rather than a fixed width so HIGH/MID/LOW size
+     themselves, and the name is `minmax(0, ...)` with nowrap so a long pattern ellipsizes
+     instead of wrapping to three lines and dragging the row tall. Before this, at a narrow
+     window the name column hit its minimum and "Arrays & Hashing" broke across three lines. */
+  grid-template-columns: 16px max-content minmax(0, 1.6fr) 52px minmax(60px, 1fr) 62px;
   gap: 12px;
   align-items: center;
   width: 100%;
@@ -580,6 +640,9 @@ pre.notice {
   letter-spacing: 0.09em;
   text-transform: uppercase;
   color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .pattern-head .pattern-elo { font-size: 12px; color: var(--signal); text-align: right; }
 .pattern-head .pattern-elo.faint { color: var(--faint); }
@@ -590,6 +653,50 @@ pre.notice {
 
 .pattern-problems { border-top: 1px solid var(--rule); background: var(--ink); }
 .pattern-problems .problem-row:last-child { border-bottom: none; }
+
+/* The reference card, above a pattern's problem list. Indented under the caret column so it
+   reads as part of the pattern rather than as a sibling of it. */
+.pattern-ref { padding: 12px 14px 14px 42px; border-bottom: 1px solid var(--rule); }
+.pattern-ref h3 {
+  font-family: var(--din);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--dim);
+  margin: 14px 0 6px;
+}
+.pattern-ref h3:first-child { margin-top: 0; }
+.pattern-ref .ref-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.4fr) 1fr;
+  gap: 14px;
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--rule);
+  font-size: 12.5px;
+}
+.pattern-ref .ref-row:last-child { border-bottom: none; }
+.pattern-ref .ref-k { color: var(--dim); }
+.pattern-ref .ref-v { font-size: 12px; }
+.pattern-ref .ref-list { margin: 0; padding-left: 18px; }
+.pattern-ref .ref-list li { font-size: 12.5px; color: var(--text); margin-bottom: 4px; }
+/* The drill rows carry no qid, so they use a two-column grid rather than `.problem-row`'s
+   qid | title | badge one, which would push the title into the 52px column. */
+.pattern-ref .problem-row { grid-template-columns: 1fr auto; }
+
+/* The technique panel, in the problem workspace's left pane. Two columns so the tips scan as a
+   list of headings rather than as a wall of prose. */
+.tip-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.3fr) 1fr;
+  gap: 14px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--rule);
+}
+.tip-row:last-child { border-bottom: none; }
+.tip-title { font-size: 12.5px; color: var(--text); font-weight: 600; }
+.tip-body { font-size: 12.5px; color: var(--dim); }
+@media (max-width: 900px) { .tip-row { grid-template-columns: 1fr; gap: 3px; } }
 
 /* --- Workspace ------------------------------------------------------------ */
 
@@ -1129,6 +1236,12 @@ pre.notice {
   .fundamentals-list { border-right: none; border-bottom: 1px solid var(--rule); max-height: 40vh; }
 }
 
+/* A long list — the design concept library's 61 rows — capped so it scrolls internally rather
+   than setting the grid row's height. Without this the list made the page 5,000px tall and the
+   concept being read sat above a screenful of empty space. The right pane here is a short note,
+   so the list is the taller column and the cap is what the row height should be. */
+.fundamentals-list.bounded { max-height: 72vh; }
+
 .module-head {
   display: flex;
   justify-content: space-between;
@@ -1322,8 +1435,10 @@ pre.notice {
 /* --- Roadmap pattern header ----------------------------------------------- */
 
 @media (max-width: 640px) {
+  /* caret | weight | name | elo | tally — the badge joins the name's row rather than taking a
+     column of its own, so the name still gets the full width minus the caret and the badge. */
   .pattern-head {
-    grid-template-columns: 16px 1fr auto;
+    grid-template-columns: 16px max-content minmax(0, 1fr) auto auto;
     gap: 8px;
     padding: 9px 10px;
   }

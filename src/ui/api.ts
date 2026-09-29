@@ -304,6 +304,109 @@ export const DIMENSION_LABEL: Record<RubricDimension, string> = {
 };
 
 /**
+ * Probe families (indices into the server's `PROBE_FAMILIES`) that a weak dimension points at.
+ *
+ * This mapping lives on the client because it answers a UI question — which concept to
+ * recommend after a weak round — rather than a server one. `communication` maps to nothing:
+ * the library is engineering content, and no concept fixes an unclear explanation.
+ */
+export const DIMENSION_PROBES: Record<RubricDimension, number[]> = {
+  problemFraming: [5],
+  systemsThinking: [0, 4],
+  technicalDepth: [6],
+  tradeoffReasoning: [4, 7],
+  communication: [],
+};
+
+// ---------------------------------------------------------------------------
+// Design concept library
+// ---------------------------------------------------------------------------
+
+export type DesignConceptGroup =
+  | "foundations"
+  | "replication"
+  | "caching"
+  | "partitioning"
+  | "storage"
+  | "messaging"
+  | "resilience";
+
+/** A concept as listed: title and one-line answer, without the body. */
+export type DesignConceptSummary = {
+  slug: string;
+  group: DesignConceptGroup;
+  title: string;
+  summary: string;
+  probeFamilies: number[];
+};
+
+export type DesignConcept = DesignConceptSummary & {
+  /** The note. Markdown. */
+  bodyMd: string;
+  /** Design prompts this most often comes up in. */
+  prompts: string[];
+};
+
+/** One concept's body, with its probe families named rather than numbered. */
+export type DesignConceptDetail = {
+  concept: DesignConcept;
+  probes: Array<string | null>;
+};
+
+export type DesignConceptGroups = {
+  groups: Array<{ group: DesignConceptGroup; label: string; concepts: DesignConceptSummary[] }>;
+  total: number;
+};
+
+// ---------------------------------------------------------------------------
+// Reference cards
+// ---------------------------------------------------------------------------
+
+export type PatternPriority = "High" | "Mid" | "Low";
+
+export type PatternRefView = {
+  pattern: string;
+  priority: PatternPriority;
+  complexity: Array<{ operation: string; cost: string }>;
+  cornerCases: string[];
+  pitfalls: string[];
+  stdlib: Record<string, string>;
+  recommended: Array<{ slug: string; title: string; difficulty: string }>;
+};
+
+// ---------------------------------------------------------------------------
+// Progress: streak and milestones
+// ---------------------------------------------------------------------------
+
+export type StreakDay = {
+  /** `YYYY-MM-DD`, local. */
+  day: string;
+  /** Graded events on that day. Drives the heatmap's intensity, not just its on/off. */
+  count: number;
+};
+
+export type StreakStats = {
+  /** Consecutive active days ending today or yesterday. */
+  current: number;
+  best: number;
+  todayDone: boolean;
+  /**
+   * The heatmap's data: every day in a whole number of Monday-aligned weeks, oldest first,
+   * including days with no activity as `count: 0`.
+   */
+  calendar: StreakDay[];
+  activeDays: number;
+};
+
+export type MilestoneState = {
+  id: string;
+  title: string;
+  requirement: string;
+  earnedAt: string | null;
+  progress: string | null;
+};
+
+/**
  * An HTTP failure that keeps the status and the parsed body.
  *
  * The body matters: a 422 from `/api/run` is not a failure at all — it means "this problem

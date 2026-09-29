@@ -13,6 +13,7 @@ import { CaseTabs } from "./components/CaseTabs";
 import { FundamentalsView } from "./components/FundamentalsView";
 import { DesignView } from "./components/DesignView";
 import { ComponentsView } from "./components/ComponentsView";
+import { TipsPanel } from "./components/TipsPanel";
 import {
   api,
   ApiError,
@@ -20,10 +21,12 @@ import {
   type DueItem,
   type DuePattern,
   type ListSummary,
+  type MilestoneState,
   type ProblemDetail,
   type ProblemRow,
   type RunResponse,
   type AttemptResponse,
+  type StreakStats,
 } from "./api";
 
 const LISTS = ["blind75", "neetcode150", "neetcode250", "leetcode75", "topInterview150"] as const;
@@ -101,6 +104,8 @@ export function App() {
   const [activeList, setActiveList] = useState<string>("neetcode150");
   const [due, setDue] = useState<DueItem[]>([]);
   const [duePatterns, setDuePatterns] = useState<DuePattern[]>([]);
+  const [streak, setStreak] = useState<StreakStats | null>(null);
+  const [milestones, setMilestones] = useState<MilestoneState[]>([]);
   const [openSlug, setOpenSlug] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   /**
@@ -141,15 +146,39 @@ export function App() {
     }
   }, []);
 
+  /**
+   * The streak and the milestones.
+   *
+   * Fetched together because they answer the same question — what has been earned — and because
+   * `/api/milestones` evaluates on read, so it must be re-read after any graded event for a new
+   * award to appear. Nothing here is self-reported: both are derived from the attempt log.
+   */
+  const loadProgress = useCallback(async () => {
+    try {
+      const s = await api<StreakStats>("/api/streak");
+      setStreak(s);
+    } catch {
+      // Progress readouts are not worth an error banner; the rest of the overview still works.
+    }
+    try {
+      const m = await api<{ milestones: MilestoneState[] }>("/api/milestones");
+      setMilestones(m.milestones);
+    } catch {
+      // Same.
+    }
+  }, []);
+
   useEffect(() => {
     void refreshLists();
     void loadDue();
-  }, [refreshLists, loadDue]);
+    void loadProgress();
+  }, [refreshLists, loadDue, loadProgress]);
 
   const onSolved = useCallback(() => {
     void refreshLists();
     void loadDue();
-  }, [refreshLists, loadDue]);
+    void loadProgress();
+  }, [refreshLists, loadDue, loadProgress]);
 
   if (openSlug) {
     return (
@@ -254,7 +283,14 @@ export function App() {
         {error ? <div className="notice bad" style={{ marginBottom: 16 }}>{error}</div> : null}
 
         {view === "overview" ? (
-          <Overview lists={lists} catalog={catalog} due={due} onOpen={setOpenSlug} />
+          <Overview
+            lists={lists}
+            catalog={catalog}
+            due={due}
+            streak={streak}
+            milestones={milestones}
+            onOpen={setOpenSlug}
+          />
         ) : null}
 
         {view === "review" ? (
@@ -285,18 +321,47 @@ export function App() {
   );
 }
 
+/**
+ * The heatmap's intensity bucket for a day's graded-event count.
+ *
+ * Absolute thresholds rather than a quantile of the window: a quantile would rescale the whole
+ * calendar every time one day changed, so the same day's colour would drift as unrelated days
+ * were added. These bands are stable — 1, 2, 3-4, 5+ — which is what makes two screenshots
+ * comparable.
+ */
+function level(count: number): number {
+  if (count === 0) return 0;
+  if (count === 1) return 1;
+  if (count === 2) return 2;
+  if (count <= 4) return 3;
+  return 4;
+}
+
 function Overview({
   lists,
   catalog,
   due,
+  streak,
+  milestones,
   onOpen,
 }: {
   lists: ListSummary[];
   catalog: number;
   due: DueItem[];
+  streak: StreakStats | null;
+  milestones: MilestoneState[];
   onOpen: (slug: string) => void;
 }) {
   const totalSolved = useMemo(() => lists.reduce((a, l) => a + l.solved, 0), [lists]);
+
+  /**
+   * Local today, as `YYYY-MM-DD`. Matches the server's own local bucketing; `toISOString` would
+   * be UTC and would mark the wrong cell in the evening.
+   */
+  const today = useMemo(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  }, []);
 
   return (
     <>
@@ -316,7 +381,75 @@ function Overview({
           <span className="k">Due now</span>
           <span className={`v ${due.length > 0 ? "signal" : ""}`}>{due.length}</span>
         </div>
+        <div className="cell">
+          <span className="k">Streak</span>
+          <span className={`v ${streak?.todayDone ? "signal" : ""}`}>
+            {streak ? streak.current : "—"}
+            {streak && streak.current > 0 ? (
+              <span className="muted small"> day{streak.current === 1 ? "" : "s"}</span>
+            ) : null}
+          </span>
+        </div>
       </div>
+
+      {/*
+        The activity calendar. Derived from the same `last_review` rows as the streak itself, so
+        a day is lit because a card was actually graded on it — there is nothing to check off.
+        Intensity comes from the event count, so a heavy day is visibly heavier.
+      */}
+      {streak && streak.activeDays > 0 ? (
+        <div className="streak-cal">
+          <div className="streak-grid">
+            {streak.calendar.map((d) => (
+              <span
+                key={d.day}
+                className={`streak-cell l${level(d.count)}${d.day === today ? " today" : ""}`}
+                title={`${d.day} — ${d.count === 0 ? "nothing graded" : `${d.count} graded`}`}
+              />
+            ))}
+          </div>
+          <div className="streak-legend">
+            <span className="muted small">
+              {streak.activeDays} active day{streak.activeDays === 1 ? "" : "s"} · best {streak.best}
+            </span>
+            <span className="streak-legend-scale">
+              <span className="muted small">less</span>
+              {[0, 1, 2, 3, 4].map((l) => (
+                <span key={l} className={`streak-cell l${l}`} />
+              ))}
+              <span className="muted small">more</span>
+            </span>
+          </div>
+        </div>
+      ) : null}
+
+      <h2>Milestones</h2>
+      <p className="muted small">
+        Earned once, from what the attempt log actually records. Nothing here can be claimed — each
+        row is a query over graded work.
+      </p>
+      <div className="table">
+        {milestones.map((m) => (
+          <div key={m.id} className={`problem-row milestone${m.earnedAt ? " earned" : ""}`}>
+            <span className="qid">{m.earnedAt ? "✓" : "·"}</span>
+            <span className="title">
+              <span className={m.earnedAt ? undefined : "muted"}>{m.title}</span>
+              {!m.earnedAt ? (
+                <span className="muted small" style={{ display: "block" }}>
+                  {m.requirement}
+                </span>
+              ) : null}
+            </span>
+            <span className="muted small mono">
+              {m.earnedAt
+                ? new Date(m.earnedAt).toLocaleDateString()
+                : (m.progress ?? "")}
+            </span>
+          </div>
+        ))}
+      </div>
+
+      <TipsPanel />
 
       <h2>Due now</h2>
       {due.length === 0 ? (

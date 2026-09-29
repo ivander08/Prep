@@ -2,6 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   api,
   DIMENSION_LABEL,
+  DIMENSION_PROBES,
+  type DesignConceptDetail,
+  type DesignConceptGroups,
+  type DesignConceptSummary,
   type DesignPhase,
   type DesignPromptSummary,
   type DesignSession,
@@ -65,10 +69,27 @@ const PHASES: Array<{ id: DesignPhase; label: string; minutes: number; hint: str
 
 type Entry = { kind: "candidate"; text: string } | { kind: "turn"; turn: DesignTurnResult };
 
-export function DesignView({ onBuild }: { onBuild: (slug: string) => void }) {
+export function DesignView({
+  onBuild,
+  initialConcept = null,
+}: {
+  onBuild: (slug: string) => void;
+  initialConcept?: string | null;
+}) {
   const [prompts, setPrompts] = useState<DesignPromptSummary[]>([]);
   const [session, setSession] = useState<DesignSession | null>(null);
   const [activeSlug, setActiveSlug] = useState<string | null>(null);
+  /**
+   * The view's two modes.
+   *
+   * The concept library is a second mode of this view rather than a nav entry of its own: it is
+   * the reference material for the round, so it belongs beside the round, and a candidate who
+   * has just been told their trade-off reasoning was weak should land in it without hunting.
+   */
+  const [mode, setMode] = useState<"rounds" | "concepts">(initialConcept ? "concepts" : "rounds");
+  const [groups, setGroups] = useState<DesignConceptGroups | null>(null);
+  const [conceptSlug, setConceptSlug] = useState<string | null>(initialConcept);
+  const [concept, setConcept] = useState<DesignConceptDetail | null>(null);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [entries, setEntries] = useState<Entry[]>([]);
   const [draft, setDraft] = useState("");
@@ -196,6 +217,58 @@ export function DesignView({ onBuild }: { onBuild: (slug: string) => void }) {
     [hydrate],
   );
 
+  /**
+   * Load the concept library the first time the Concepts tab is opened.
+   *
+   * On first switch rather than on mount: most visits to this view are for a round, and the
+   * library is 61 summaries that would be fetched and thrown away.
+   */
+  useEffect(() => {
+    if (mode !== "concepts" || groups) return;
+    void api<DesignConceptGroups>("/api/design/concepts")
+      .then(setGroups)
+      .catch((e) => setError(String(e)));
+  }, [mode, groups]);
+
+  /**
+   * Load the selected concept's body.
+   *
+   * `initialConcept` opens the library on a concept the round's result panel recommended, so the
+   * effect runs off `conceptSlug` rather than off a click handler — the deep link and the click
+   * take the same path.
+   */
+  useEffect(() => {
+    if (!conceptSlug) return;
+    let cancelled = false;
+    setConcept(null);
+    api<DesignConceptDetail>(`/api/design/concepts/item?slug=${encodeURIComponent(conceptSlug)}`)
+      .then((c) => !cancelled && setConcept(c))
+      .catch((e) => !cancelled && setError(String(e)));
+    return () => {
+      cancelled = true;
+    };
+  }, [conceptSlug]);
+
+  /**
+   * Switch to the library on a concept.
+   *
+   * Used by the result panel's "Worth reading" links and by the prompt chips inside a concept,
+   * so both are the same in-component mode switch rather than a navigation.
+   */
+  const openConcept = useCallback((slug: string) => {
+    setMode("concepts");
+    setConceptSlug(slug);
+  }, []);
+
+  /** Switch back to the round with a prompt selected. */
+  const openPrompt = useCallback(
+    (slug: string) => {
+      setMode("rounds");
+      void start(slug);
+    },
+    [start],
+  );
+
   const saveDraft = useCallback(
     async (phase: DesignPhase, text: string) => {
       if (!session) return;
@@ -314,13 +387,47 @@ export function DesignView({ onBuild }: { onBuild: (slug: string) => void }) {
       </div>
 
       <p className="muted">
-        A 40-minute design round against an interviewer that will not hand you the design. Write each
-        phase, ask when you need to, and finish for a behavioural grade — the same rubric shape the real
-        round is scored on.
+        {mode === "rounds" ? (
+          <>
+            A 40-minute design round against an interviewer that will not hand you the design. Write each
+            phase, ask when you need to, and finish for a behavioural grade — the same rubric shape the real
+            round is scored on.
+          </>
+        ) : (
+          <>
+            The concept library: {groups?.total ?? 61} short trade-off notes covering what a design round
+            probes. Each one names the probe families it answers, so a weak dimension in a finished round
+            points at the note that covers it.
+          </>
+        )}
       </p>
+
+      <div className="case-tab-strip" style={{ marginBottom: 12 }}>
+        <button
+          className={`case-tab${mode === "rounds" ? " active" : ""}`}
+          onClick={() => setMode("rounds")}
+        >
+          Rounds
+        </button>
+        <button
+          className={`case-tab${mode === "concepts" ? " active" : ""}`}
+          onClick={() => setMode("concepts")}
+        >
+          Concepts{groups ? ` (${groups.total})` : ""}
+        </button>
+      </div>
 
       {error ? <div className="notice bad" style={{ marginBottom: 12 }}>{error}</div> : null}
 
+      {mode === "concepts" ? (
+        <ConceptLibrary
+          groups={groups}
+          conceptSlug={conceptSlug}
+          concept={concept}
+          onSelect={setConceptSlug}
+          onOpenPrompt={openPrompt}
+        />
+      ) : (
       <div className="workspace">
         <div className="fundamentals-list">
           <div className="module-head">
@@ -368,7 +475,9 @@ export function DesignView({ onBuild }: { onBuild: (slug: string) => void }) {
               </div>
               <p className="muted small" style={{ marginTop: 6 }}>{phase.hint}</p>
 
-              {scores ? <ResultsPanel scores={scores} onBuild={onBuild} /> : null}
+              {scores ? (
+                <ResultsPanel scores={scores} onBuild={onBuild} onOpenConcept={openConcept} />
+              ) : null}
 
               {PHASES.map((p) => (
                 <div key={p.id} className="design-field">
@@ -468,7 +577,103 @@ export function DesignView({ onBuild }: { onBuild: (slug: string) => void }) {
           )}
         </div>
       </div>
+      )}
     </>
+  );
+}
+
+/**
+ * The concept library: groups on the left, the selected note on the right.
+ *
+ * Laid out on the same `.workspace` grid as the round, because it is the same reading posture —
+ * browse on the left, read on the right — and a second layout language for one screen would
+ * drift from the first.
+ */
+function ConceptLibrary({
+  groups,
+  conceptSlug,
+  concept,
+  onSelect,
+  onOpenPrompt,
+}: {
+  groups: DesignConceptGroups | null;
+  conceptSlug: string | null;
+  concept: DesignConceptDetail | null;
+  onSelect: (slug: string) => void;
+  onOpenPrompt: (slug: string) => void;
+}) {
+  if (!groups) return <div className="spinner">Loading concepts…</div>;
+
+  return (
+    <div className="workspace">
+      <div className="fundamentals-list bounded">
+        {groups.groups.map((g) => (
+          <div key={g.group}>
+            <div className="module-head">
+              <span>{g.label}</span>
+              <span className="mono muted small">{g.concepts.length}</span>
+            </div>
+            <div className="table" style={{ border: "none" }}>
+              {g.concepts.map((c: DesignConceptSummary) => (
+                <div
+                  key={c.slug}
+                  className={`problem-row${c.slug === conceptSlug ? " active" : ""}`}
+                  onClick={() => onSelect(c.slug)}
+                >
+                  <span className="qid">·</span>
+                  <span className="title">
+                    {c.title}
+                    <span className="muted small" style={{ display: "block" }}>
+                      {c.summary}
+                    </span>
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="pane">
+        {!concept ? (
+          <div className="empty">Pick a concept. Each note is a trade-off, not a definition.</div>
+        ) : (
+          <>
+            <h2 style={{ marginTop: 0 }}>{concept.concept.title}</h2>
+
+            {concept.probes.length > 0 ? (
+              <div className="row" style={{ marginBottom: 10 }}>
+                <span className="muted small">Answers:</span>
+                {concept.probes.map((p, i) =>
+                  p ? (
+                    <span key={i} className="chip">
+                      {p}
+                    </span>
+                  ) : null,
+                )}
+              </div>
+            ) : null}
+
+            <div className="card">
+              <Markdown md={concept.concept.bodyMd} />
+            </div>
+
+            {concept.concept.prompts.length > 0 ? (
+              <>
+                <h3 style={{ marginBottom: 6 }}>Comes up in</h3>
+                <div className="row">
+                  {concept.concept.prompts.map((slug) => (
+                    <button key={slug} className="chip" onClick={() => onOpenPrompt(slug)}>
+                      {slug}
+                    </button>
+                  ))}
+                </div>
+              </>
+            ) : null}
+          </>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -495,7 +700,54 @@ const DIMENSIONS: RubricDimension[] = [
   "communication",
 ];
 
-function ResultsPanel({ scores, onBuild }: { scores: DesignScores; onBuild: (slug: string) => void }) {
+function ResultsPanel({
+  scores,
+  onBuild,
+  onOpenConcept,
+}: {
+  scores: DesignScores;
+  onBuild: (slug: string) => void;
+  onOpenConcept: (slug: string) => void;
+}) {
+  /**
+   * The concepts covering the round's weakest dimension.
+   *
+   * Fetched here rather than threaded down from the parent, because the result panel can be
+   * reached without ever opening the library. Cached per mount is not worth it: a round is
+   * finished at most a few times a session.
+   */
+  const [reading, setReading] = useState<DesignConceptSummary[]>([]);
+
+  const weakest = useMemo(() => {
+    let worst = DIMENSIONS[0]!;
+    for (const d of DIMENSIONS) {
+      if (scores.scores[d].score < scores.scores[worst].score) worst = d;
+    }
+    return worst;
+  }, [scores]);
+
+  const probes = DIMENSION_PROBES[weakest];
+
+  useEffect(() => {
+    // `communication` maps to no probe family: the library is engineering content, and no note
+    // fixes an unclear explanation, so the section is simply absent.
+    if (probes.length === 0) return;
+    let cancelled = false;
+    void api<DesignConceptGroups>("/api/design/concepts")
+      .then((g) => {
+        if (cancelled) return;
+        const all = g.groups.flatMap((x) => x.concepts);
+        setReading(all.filter((c) => c.probeFamilies.some((i) => probes.includes(i))).slice(0, 4));
+      })
+      .catch(() => {
+        // A failed lookup removes the suggestion, not the round's grade. The result panel is the
+        // thing the candidate came for.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [probes]);
+
   return (
     <div className="design-results">
       <div className="spread">
@@ -542,6 +794,28 @@ function ResultsPanel({ scores, onBuild }: { scores: DesignScores; onBuild: (slu
       </div>
 
       <SignalList signals={scores.signals} />
+
+      {reading.length > 0 ? (
+        <>
+          <h3 style={{ marginBottom: 4 }}>Worth reading</h3>
+          <p className="muted small" style={{ marginTop: 0 }}>
+            Concepts that cover {DIMENSION_LABEL[weakest].toLowerCase()}, the dimension this round scored
+            lowest on.
+          </p>
+          <div className="table">
+            {reading.map((c) => (
+              <div key={c.slug} className="problem-row" onClick={() => onOpenConcept(c.slug)}>
+                <span className="title">
+                  {c.title}
+                  <span className="muted small" style={{ display: "block" }}>
+                    {c.summary}
+                  </span>
+                </span>
+              </div>
+            ))}
+          </div>
+        </>
+      ) : null}
 
       {scores.componentSlug ? (
         <div className="row" style={{ marginTop: 12 }}>
