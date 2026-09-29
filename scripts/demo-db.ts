@@ -31,7 +31,7 @@ mkdirSync(OUT_DIR, { recursive: true });
 copyFileSync(REAL, OUT);
 // A stale WAL beside the copy would be replayed on open and can resurrect rows this script
 // deletes, so the sidecar files are removed rather than copied.
-for (const suffix of ["-wal", "-shm"]) rmSync(REAL + suffix, { force: true });
+for (const suffix of ["-wal", "-shm"]) rmSync(OUT + suffix, { force: true });
 
 const db = new Database(OUT);
 
@@ -78,6 +78,8 @@ const problems = db
      WHERE pattern IS NOT NULL ORDER BY qid LIMIT 400`,
   )
   .all();
+
+if (problems.length === 0) throw new Error("no problems with a pattern — run `bun run ingest` first");
 
 let cursor = 0;
 const solved = new Set<number>();
