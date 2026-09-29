@@ -79,6 +79,14 @@ export function looksLikeDesignHandover(text: string): boolean {
  * candidate has committed to components themselves, so naming several back to them is
  * confirmation, not a leak. That is why the component-list check is gated on the ceiling and
  * not applied throughout.
+ *
+ * The two handover checks below are deliberately NOT gated. They were gated on
+ * `maxProbeLevel < 4`, and `probeCeiling` returns 4..7 in `deepdive` and the full set in `wrapup`
+ * (`policy.ts`), so in those phases an interviewer turn could hand over an arbitrary architecture
+ * with zero violations recorded. The ceiling is also reachable from user text: `phaseFromDrafts`
+ * returns the first phase with an empty draft, so writing anything into the first four drafts
+ * grants the full probe set. A handed-over design is a leak in every phase; the phase governs what
+ * the interviewer ASKS, not whether a handover is recorded.
  */
 export function detectDesignViolations(
   turn: DesignTurnDraft,
@@ -86,16 +94,14 @@ export function detectDesignViolations(
 ): Violation[] {
   const violations: Violation[] = [];
 
-  if (turn.revealsDesign && opts.maxProbeLevel < 4) {
+  if (turn.revealsDesign) {
     violations.push({
       kind: "full-solution",
       detail: "self-reported handing over a design",
     });
   }
 
-  // Below the deep-dive phase, a full architecture is a leak. The candidate has not yet been
-  // asked to justify anything, so the interviewer has no standing to hand over the answer.
-  if (opts.maxProbeLevel < 4 && looksLikeDesignHandover(turn.message)) {
+  if (looksLikeDesignHandover(turn.message)) {
     const n = countComponents(turn.message);
     violations.push({
       kind: "full-solution",

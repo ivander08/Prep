@@ -843,7 +843,12 @@ app.post("/api/design/:id/finish", async (c) => {
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    return c.json({ error: msg }, msg.startsWith("unknown design session") ? 404 : 502);
+    const status = msg.startsWith("unknown design session")
+      ? 404
+      : msg === "session already graded"
+        ? 409
+        : 502;
+    return c.json({ error: msg }, status);
   }
 });
 

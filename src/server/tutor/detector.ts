@@ -119,8 +119,14 @@ export function detectViolations(turn: DetectorInput, ceiling: number): Violatio
     violations.push({ kind: "full-solution", detail: "message contains a complete code block" });
   }
 
-  // Below H4, pseudocode is not yet permitted, so real syntax is a leak.
-  if (ceiling < 4) {
+  // Real syntax is a leak at every level that forbids it. H4 (pseudocode) and H5 (worked example)
+  // both say "NO real language syntax" in `HINT_RULES`, and H6 is the unlocked full solution.
+  //
+  // The gate used to be `ceiling < 4`, so at H4 the only content check that could fire was
+  // `looksLikeSolution` — which misses a single real-syntax line — and at H5 the function returned
+  // after the self-report check alone, accepting a draft that contained a complete runnable
+  // solution. Both contradicted the policy the ceiling was supposed to enforce.
+  if (ceiling < 6) {
     const syntax = findRealSyntax(turn.message);
     if (syntax) {
       violations.push({ kind: "real-code", detail: `message contains ${syntax}` });

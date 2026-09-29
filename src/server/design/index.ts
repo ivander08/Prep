@@ -636,6 +636,10 @@ export function quoteAppears(quote: string, corpus: string): boolean {
  */
 export async function gradeDesign(sessionId: number): Promise<DesignGradeResult> {
   const session = loadSession(sessionId);
+  // A retry must not re-run the paid model call, overwrite the scores and seconds, and advance the
+  // FSRS card again with no new evidence. The prose track has exactly this guard
+  // (`finishTrackSession`); the design route maps the message to 409 the same way.
+  if (session.endedAt !== null) throw new Error("session already graded");
   const prompt = getDesignPrompt(session.slug);
   if (!prompt) throw new Error(`unknown design prompt: ${session.slug}`);
 
