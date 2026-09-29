@@ -2,13 +2,13 @@
  * Sketch persistence tests.
  *
  * The regression these exist for: the sketch used to be rasterised to a PNG and written to
- * `design_sessions.sketch_png`, which `loadSession` never selected — so a reloaded round
- * restored its drafts and left the pad empty, and nothing in the codebase noticed because no
- * test ever read a sketch back.
+ * `design_sessions.sketch_png`, which `loadSession` never selected, so a reloaded round restored
+ * its drafts and left the pad empty, and nothing in the codebase noticed because no test ever
+ * read a sketch back.
  *
- * `sanitiseShapes` is exercised through `saveSketch`/`loadSession` rather than directly: the
- * numbers it accepts are interpolated straight into SVG geometry attributes, so what matters
- * is what survives the round trip, not that the helper returns a value.
+ * `sanitiseShapes` is exercised through `saveSketch`/`loadSession`, not directly: the numbers it
+ * accepts are interpolated straight into SVG geometry attributes, so what matters is what
+ * survives the round trip, not that the helper returns a value.
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -19,8 +19,8 @@ import { loadSession, saveSketch, startDesignSession, type SketchShape } from ".
 const SLUG = "rate-limiter";
 
 beforeAll(() => {
-  // The test database's schema is copied from the live one, so migration 015 — which adds
-  // `sketch_shapes` — has to be applied explicitly for the column to exist.
+  // The test database's schema is copied from the live one, so migration 015 (which adds
+  // `sketch_shapes`) has to be applied explicitly for the column to exist.
   migrate();
 });
 

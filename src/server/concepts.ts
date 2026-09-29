@@ -1,18 +1,14 @@
 /**
- * Pre-DSA language fundamentals — the runtime.
+ * Pre-DSA language fundamentals: the runtime.
  *
- * A concept is graded through the SAME executor the DSA problems use (`runInLanguage`), so
- * there is no second execution path to keep correct. The only concept-specific machinery is:
- *
- *   1. The catalogue is seeded into `concept_exercises` so it is queryable and so a content
- *      edit is a row update rather than a redeploy.
- *   2. Each concept's `meta` (parameter and return types) is DERIVED from its own tests.
- *      C++ cannot generate a call site without it, and hand-writing 31 signatures in
- *      LeetCode's type vocabulary is 31 chances to typo a type that then fails at compile
- *      time in a language nobody is looking at.
- *   3. Passing records an `items` row and schedules it through `item_cards`, using the same
- *      behavioural grade the DSA path uses. `items`/`item_cards` were created in 001 for
- *      exactly this and have been unused since.
+ * A concept is graded through the same executor the DSA problems use (`runInLanguage`), so there is
+ * no second execution path.
+ *   1. The catalogue is seeded into `concept_exercises`, so a content edit is a row update.
+ *   2. Each concept's `meta` (parameter and return types) is derived from its own tests. C++ needs
+ *      it to generate a call site, and hand-writing 31 signatures in LeetCode's type vocabulary is
+ *      31 chances to typo a type that then fails to compile in a language nobody is looking at.
+ *   3. Passing records an `items` row and schedules it through `item_cards` with the same
+ *      behavioural grade the DSA path uses; both tables came from 001 and went unused.
  */
 
 import { db } from "./db.ts";
@@ -65,8 +61,8 @@ export const LANGS = ["python3", "javascript", "java", "cpp", "go"] as const;
 
 /**
  * LeetCode's type vocabulary, which is what `runInLanguage` and the C++ code generator
- * understand. Only these are emitted; the catalogue's tests are written to stay inside them
- * (no matrix inputs or returns — see catalog.ts).
+ * understand. Only these are emitted; the catalogue's tests stay inside them (no matrix inputs or
+ * returns, see catalog.ts).
  */
 export type LeanType = "integer" | "integer[]" | "string" | "string[]" | "boolean";
 
@@ -85,10 +81,10 @@ export function leanTypeOf(value: unknown): LeanType | null {
 }
 
 /**
- * Infer a parameter or return type by scanning EVERY test case.
+ * Infer a parameter or return type by scanning every test case.
  *
- * Scanning all cases rather than the first matters: `buildRange(0)` returns `[]`, which is
- * type-ambiguous on its own, but `buildRange(5)` returns `[0,1,2,3,4]` and settles it.
+ * Scanning all cases matters: `buildRange(0)` returns `[]`, which is type-ambiguous on its own,
+ * but `buildRange(5)` returns `[0,1,2,3,4]` and settles it.
  */
 function inferType(values: unknown[], fallback: LeanType): LeanType {
   for (const v of values) {
@@ -101,9 +97,8 @@ function inferType(values: unknown[], fallback: LeanType): LeanType {
 /**
  * The `metaData` shape the runner needs, derived from a spec's tests.
  *
- * Takes anything with a `name` and `tests` rather than a `ConceptSpec` so the component track
- * can reuse it: the type-inference rule below (scanning every case, not just the first) is the
- * part worth not writing twice, and it is identical for both catalogues.
+ * Takes anything with a `name` and `tests` (not a `ConceptSpec`), so the component track can reuse
+ * it: the type-inference rule below is identical for both catalogues.
  */
 export function metaFor(spec: {
   name: string;
@@ -131,9 +126,9 @@ export function metaFor(spec: {
 /**
  * Write the catalogue into `concept_exercises`.
  *
- * Idempotent and self-correcting: an edited concept updates in place, so the table is never
- * a stale copy of the source. `ON CONFLICT` rather than `INSERT OR IGNORE` for exactly that
- * reason — ignoring would leave old prose behind after a fix.
+ * Idempotent and self-correcting: an edited concept updates in place, so the table is never a
+ * stale copy of the source. `ON CONFLICT` instead of `INSERT OR IGNORE`, since ignoring would
+ * leave old prose behind after a fix.
  */
 export function seedConcepts(): number {
   const insert = db.query(
@@ -278,9 +273,9 @@ export function getConcept(slug: string): ConceptExercise | null {
 /**
  * Execute a concept submission.
  *
- * Same executor, same harnesses as a DSA problem. `orderless` is deliberately left unset:
- * several concepts assert a specific ordering (a stable sort, a transpose, a sliding-window
- * scan), and marking them orderless would make those tests pass for the wrong answer.
+ * Same executor and harnesses as a DSA problem. `orderless` is left unset: several concepts
+ * assert a specific ordering (a stable sort, a transpose, a sliding-window scan), and marking
+ * them orderless would make those tests pass for the wrong answer.
  */
 export async function runConcept(slug: string, code: string): Promise<RunResult> {
   const exercise = getConcept(slug);
@@ -302,12 +297,11 @@ export async function runConcept(slug: string, code: string): Promise<RunResult>
 /**
  * Record a passed concept and schedule it for review.
  *
- * The `items` row is inserted before the `item_cards` row because `item_cards.item_id`
- * references `items(id)` and foreign keys are on.
+ * The `items` row is inserted before the `item_cards` row because `item_cards.item_id` references
+ * `items(id)` and foreign keys are on.
  *
- * The grade comes from `gradeAttempt` — the same behavioural derivation the DSA path uses.
- * There is no self-rating anywhere in this app, and a concept is not an exception: the tests
- * passed or they did not, and that is the grade.
+ * The grade comes from `gradeAttempt`, the same behavioural derivation the DSA path uses. There is
+ * no self-rating anywhere in this app: the tests passed or they did not, and that is the grade.
  */
 export function recordConcept(
   slug: string,
@@ -324,8 +318,8 @@ export function recordConcept(
     seconds,
   });
 
-  // Nothing attempted (a compile error, say) is not evidence either way, so it is not
-  // scheduled — same rule the DSA path uses for `testsPassed === 0`.
+  // Nothing attempted (a compile error, say) is not evidence either way, so it is not scheduled,
+  // the same rule the DSA path uses for `testsPassed === 0`.
   if (!result.accepted && result.passed === 0) {
     return { grade, due: null, intervalDays: null };
   }

@@ -1,27 +1,14 @@
 /**
- * Behavioral-interview prompts.
+ * Behavioral-interview prompts: eighteen prompts in six groups.
  *
- * Eighteen prompts in six groups, the topic index for the behavioral track. A behavioral
- * answer is graded on structure rather than on the story: whether the candidate named a
- * specific situation, what they personally did, and what changed as a result. That is a
- * rubric a model can score against quoted evidence, which is why this track reuses the
- * design round's grading machinery instead of growing a second one.
- *
- * THE ANSWER KEY IS HERE AND MUST NOT REACH THE CLIENT. `lookFor` is what the grader scores
- * against and `commonMistakes` is what a coach would say; neither is text a candidate should
- * read before answering, because a prompt that ships its own rubric has turned a question
- * into a fill-in-the-blanks exercise. `listBehavioralPrompts` therefore serves only slug,
- * group, title and summary. `lookFor` bullets are written to be checkable against a written
- * answer — each one names something a grader can point at or fail to find — since a rubric
- * bullet nobody can verify is a bullet that gets scored on vibes.
- *
- * Held in code, like every other catalogue here, rather than in a table: a prose edit is
- * then a source edit, not a migration. `001_init.sql` already lists `behavioral` among the
- * non-DSA item kinds, so there is no table to create and nothing to seed on boot.
- *
- * Three prompts per group is deliberate. The groups are the six axes an interviewer probes,
- * and a track weighted towards one of them would let a candidate drill ownership for a week
- * without ever being asked about ambiguity.
+ * An answer is graded on structure, not on the story: whether the candidate named a specific
+ * situation, what they personally did, and what changed as a result. That rubric reuses the
+ * design round's grading machinery.
+ * The answer key is here and must not reach the client: `lookFor` is what the grader scores
+ * against and `commonMistakes` is what a coach would say, and `listBehavioralPrompts` serves
+ * only slug, group, title and summary. Held in code, not in a table, so a prose edit is a
+ * source edit and not a migration; `001_init.sql` already lists `behavioral` among the non-DSA
+ * item kinds. Three prompts per group keeps the track balanced across the six axes.
  */
 
 export type BehavioralGroup = "ownership" | "conflict" | "failure" | "influence" | "ambiguity" | "growth";
@@ -52,7 +39,7 @@ export type BehavioralPrompt = {
   statement: string;
   /** The one-line summary shown collapsed. */
   summary: string;
-  /** What a strong answer contains. The answer key — never sent to the client. */
+  /** What a strong answer contains. The answer key: never sent to the client. */
   lookFor: string[];
   /** Where candidates typically go wrong on this one. Written as the failure. */
   commonMistakes: string[];

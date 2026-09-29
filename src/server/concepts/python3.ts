@@ -1,13 +1,14 @@
 /**
- * Python 3 — pre-DSA language fundamentals.
+ * Python 3: pre-DSA language fundamentals.
  *
  * `starter` is the faded scaffold a student is given; `solution` is the exemplar that must
  * pass every case in `catalog.ts`. The harness binds `class Solution` and calls the method
- * named by `fnNameFor("python3", name)` — snake_case of the catalogue's canonical name.
+ * named by `fnNameFor("python3", name)`, which is the snake_case of the catalogue's canonical
+ * name.
  *
- * The examples lean on the standard library where the library IS the lesson: `collections`
- * is a module of built-ins, so `deque`, `heapq`, `Counter` and `sorted` appear as the
- * idiomatic answer rather than as something to reimplement.
+ * The examples lean on the standard library where the library IS the lesson: `collections` is
+ * a module of built-ins, so `deque`, `heapq`, `Counter` and `sorted` appear as the idiomatic
+ * answer, not as something to reimplement.
  */
 
 export const PYTHON: Record<string, { starter: string; solution: string }> = {

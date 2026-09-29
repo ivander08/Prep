@@ -1,26 +1,14 @@
 /**
- * Engineering-depth prompts — the stack track.
- *
- * Eighteen questions about how a running system actually behaves, in six groups. The prose is
- * original and written for this app; the mechanisms described are the ones any production
- * post-mortem or language specification names, and no text is reproduced from a book or an
- * article.
- *
- * Held in code rather than a table for the same reason `design/catalog.ts`,
- * `design/concepts.ts` and `concepts/catalog.ts` are: a prose edit is then a source edit, not a
- * migration, and a question can be reworded in the same commit as the thing that made it
- * necessary.
- *
- * THE ANSWER KEY IS HERE AND MUST NOT REACH THE CLIENT. `lookFor` and `commonMistakes` are what
- * the grader scores a written answer against, not a script the candidate reads. The whole point
- * of the track is that the candidate produces the mechanism, the tool and the tradeoff
- * themselves; a catalogue that shipped its `lookFor` would hand over the rubric before the
- * answer was written. The list endpoint therefore serves only `{slug, group, title, summary}`,
- * and `getStackPrompt` — which does carry the answer key — is for the server's own grading path.
- *
- * This track runs no code. Every question is answerable in prose, which is why it reuses the
- * design round's grading machinery rather than the runner: the same rubric, the same
- * verbatim-quote check, the same `reviewItem` scheduling call.
+ * Engineering-depth prompts, the stack track. Eighteen questions about how a running system
+ * behaves, in six groups. The prose is original; the mechanisms described are the ones any
+ * production post-mortem or language specification names, and none of it is copied from a
+ * book or an article. Held in code, like `design/catalog.ts`, `design/concepts.ts` and
+ * `concepts/catalog.ts`, because a prose edit is then a source edit and not a migration.
+ * The answer key is here and must not reach the client. `lookFor` and `commonMistakes` score
+ * a written answer, so the list endpoint serves only `{slug, group, title, summary}`;
+ * `getStackPrompt` carries the key and stays server-side. No code runs here: the design
+ * round's grading machinery, the same rubric, the same verbatim-quote check, the same
+ * `reviewItem` scheduling call.
  */
 
 export type StackGroup = "language-depth" | "runtime" | "data" | "concurrency" | "delivery" | "debugging";
@@ -51,7 +39,7 @@ export type StackPrompt = {
   statement: string;
   /** The one-line summary shown collapsed. */
   summary: string;
-  /** What a strong answer contains. The answer key — never sent to the client. */
+  /** What a strong answer contains. The answer key, never sent to the client. */
   lookFor: string[];
   /** Where candidates typically go wrong on this one. */
   commonMistakes: string[];

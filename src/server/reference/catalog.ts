@@ -1,30 +1,14 @@
 /**
- * Pattern reference cards — the shared catalogue.
+ * Pattern reference cards: the shared catalogue.
  *
- * One entry per roadmap pattern, held in code rather than a table, the same way
- * `concepts/catalog.ts` and `design/catalog.ts` are: a prose edit is then a source edit, not a
- * migration.
+ * One entry per roadmap pattern, held in code, not a table, the same way `concepts/catalog.ts` and `design/catalog.ts` are: a prose edit is then a source edit, not a migration.
  *
- * THE `pattern` FIELD IS A FOREIGN KEY WITHOUT A CONSTRAINT. The roadmap vocabulary is
- * INGESTED (`patterns.ts` writes `problems.pattern`), not declared here, so a re-ingest can add
- * or rename a pattern with no code change. That is why `getPatternRef` returns null rather than
- * throwing: "no card yet" is a normal state the roadmap renders as nothing at all. The
- * alternative — a lookup that throws — would turn a data refresh into a 500.
+ * The `pattern` field is a foreign key without a constraint. The roadmap vocabulary is INGESTED (`patterns.ts` writes `problems.pattern`), not declared here, so a re-ingest can add or rename a pattern with no code change. That is why `getPatternRef` returns null, not throws: "no card yet" is a normal state the roadmap renders as nothing at all. A lookup that throws would turn a data refresh into a 500.
  *
- * WHY `stdlib` IS REQUIRED IN ALL FIVE LANGUAGES. The app runs five languages and grades all
- * five, so a card that only helps Python teaches the wrong lesson: the reference exists to
- * answer "what do I call here", and "nothing, write it yourself" is a different answer per
- * language. `reference.test.ts` fails if any language key is missing.
+ * `stdlib` is required in all five languages. The app runs five languages and grades all five, so a card that only helps Python teaches the wrong lesson: the reference answers "what do I call here", and "nothing, write it yourself" is a different answer per language. `reference.test.ts` fails if any language key is missing.
  *
- * WHY `cornerCases` AND `pitfalls` ARE SEPARATE. Corner cases are properties of the INPUT that
- * break the obvious implementation; pitfalls are mistakes in the IMPLEMENTATION that pass the
- * sample case and fail the hidden one. They are the two ways a submission dies and they call
- * for different fixes, so merging them into one list would lose the distinction that makes the
- * card useful.
- *
- * `complexity` is the canonical operation's cost, not a data-structure table: two or three rows
- * for the operation the pattern is built around. A full complexity table is what the textbook
- * is for; this is the line you need mid-interview.
+ * `cornerCases` and `pitfalls` are separate. Corner cases are properties of the INPUT that break the obvious implementation; pitfalls are mistakes in the IMPLEMENTATION that pass the sample case and fail the hidden one. They are the two ways a submission dies and they call for different fixes, so merging them would lose the distinction that makes the card useful.
+ * `complexity` is the canonical operation's cost, not a data-structure table: two or three rows for the operation the pattern is built around. A full complexity table is what the textbook is for; this is the line you need mid-interview.
  */
 
 import { LANGS } from "../concepts.ts";

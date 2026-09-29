@@ -1,9 +1,9 @@
 /**
- * SRS acceptance fixtures — BUILD-SPEC §5.2 and §5.3.
+ * SRS acceptance fixtures: BUILD-SPEC §5.2 and §5.3.
  *
  * The interval-cap test is the important one: ts-fsrs defaults to a 36,500-day cap, and
- * an uncapped scheduler silently stops showing you problems you still need. That failure
- * is invisible in a demo and only shows up weeks later.
+ * an uncapped scheduler stops showing you problems you still need, with no error raised.
+ * That failure is invisible in a demo and only shows up weeks later.
  */
 
 import { afterEach, describe, expect, test } from "bun:test";
@@ -50,7 +50,7 @@ describe("SCHEDULER configuration", () => {
     expect(days(Rating.Again)).toBe(1);
     expect(days(Rating.Hard)).toBe(2);
     expect(days(Rating.Good)).toBe(4);
-    // Easy is 17 d here vs 8 d under ts-fsrs defaults — lowering request_retention to
+    // Easy is 17 d here vs 8 d under ts-fsrs defaults: lowering request_retention to
     // 0.85 lengthens every interval. That is the intended trade for a short horizon.
     expect(days(Rating.Easy)).toBe(17);
   });
@@ -66,7 +66,7 @@ describe("SCHEDULER configuration", () => {
       max = Math.max(max, card.scheduled_days);
     }
 
-    // Uncapped, this reaches 8,346 days. The cap is "≈90": fuzz is applied AFTER the
+    // Uncapped, this reaches 8,346 days. The cap is "≈90": fuzz is applied after the
     // cap, so a small overshoot is expected and correct. Asserting <= 90 would be wrong.
     expect(max).toBeLessThanOrEqual(95);
     expect(max).toBeGreaterThan(60);
@@ -91,7 +91,7 @@ describe("SCHEDULER configuration", () => {
 /**
  * The regression this exists for: `items.kind` takes six values, and the three readers that
  * preceded `dueItems` each pinned one kind. A concept, a component or a design prompt was
- * scheduled, written to `item_cards`, and never read back — the due date went in and nothing
+ * scheduled, written to `item_cards`, and never read back. The due date went in and nothing
  * came out. Every seeded row below would have been invisible to the old readers.
  */
 describe("dueItems — every scheduled kind is readable", () => {
@@ -140,7 +140,7 @@ describe("dueItems — every scheduled kind is readable", () => {
   });
 
   test("oldest due first, across both tables", () => {
-    // Distinct timestamps rather than one shared value, so the ORDER BY is actually exercised.
+    // Distinct timestamps, one per row, so the ORDER BY is actually exercised.
     add("concept", "srs-test-oldest", new Date(Date.now() - 3 * 86_400_000).toISOString());
     add("component", "srs-test-middle", new Date(Date.now() - 2 * 86_400_000).toISOString());
     add("design", "srs-test-newest", PAST);
@@ -153,7 +153,7 @@ describe("dueItems — every scheduled kind is readable", () => {
 
   test("an unknown kind is returned rather than dropped", () => {
     // `items.kind` has no CHECK constraint, so a track added later must not need a code change
-    // here to become visible — that is exactly how three kinds ended up with no reader.
+    // here to become visible. That is how three kinds ended up with no reader.
     add("sql", "srs-test-unknown", PAST);
 
     expect(dueItems(200).some((d) => (d.kind as string) === "sql")).toBe(true);
@@ -196,8 +196,8 @@ describe("dueItems — every scheduled kind is readable", () => {
 
   test("a pattern row carries the most recently passed problem, and a pattern with none carries null", () => {
     // Synthetic problems under a pattern name no other fixture writes, because the shared
-    // catalog's real problems carry attempts left by `mastery.test.ts` — asserting against
-    // those would make this pass or fail on file ordering rather than on `dueItems`.
+    // catalog's real problems carry attempts left by `mastery.test.ts`. Asserting against
+    // those would make this pass or fail on file ordering, not on `dueItems`.
     const pattern = "SRS Test Pattern";
     const OLDER = 900_001;
     const NEWER = 900_002;
@@ -215,8 +215,8 @@ describe("dueItems — every scheduled kind is readable", () => {
         [qid, endedAt, endedAt, passed],
       );
     };
-    // The failure is dated LATEST, so "most recent" has to mean most recent PASS, not most
-    // recent attempt — a query that forgot `passed = 1` would pick it.
+    // The failure is dated latest, so "most recent" has to mean most recent pass, not most
+    // recent attempt. A query that forgot `passed = 1` would pick it.
     insert(OLDER, 1, "2026-01-01T00:00:00.000Z");
     insert(NEWER, 1, "2026-02-01T00:00:00.000Z");
     insert(FAILED, 0, "2026-03-01T00:00:00.000Z");
@@ -229,8 +229,8 @@ describe("dueItems — every scheduled kind is readable", () => {
       db.run("DELETE FROM problems WHERE qid IN (?, ?, ?)", [OLDER, NEWER, FAILED]);
     }
 
-    // A pattern nothing has passed stays in the list with a null `problemSlug`, rather than
-    // vanishing: it is still scheduled, it just has nothing to re-solve.
+    // A pattern nothing has passed stays in the list with a null `problemSlug`. It is still
+    // scheduled, it just has nothing to re-solve.
     const orphan = "SRS Test Orphan Pattern";
     add("pattern", orphan, PAST);
     const orphanRow = dueItems(200).find((d) => d.ref === orphan);

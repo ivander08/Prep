@@ -1,18 +1,13 @@
 /**
  * Parse the dataset's textual inputs into call arguments.
- *
  * The `input_output` field stores inputs as source-like text:
  *
  *     'nums = [3,3], target = 6'
  *     'strs = ["a","b","c","d","e"]'
  *     'n = 7, queries = [[0,5],[1,6],[2,4]]'
  *
- * Splitting on commas is not sufficient — commas appear inside the values. The parser
- * tracks bracket depth and string state, then splits only at top-level `, name =`
- * boundaries.
- *
- * Verified against the real corpus: `two-sum` (80 pairs) and `group-anagrams` (69 pairs)
- * both parse, and the parsed arity matches `metaData.params`.
+ * Splitting on commas is not sufficient: commas appear inside the values. The parser tracks bracket depth and string state, then splits only at top-level `, name =` boundaries.
+ * Verified against the real corpus: `two-sum` (80 pairs) and `group-anagrams` (69 pairs) both parse, and the parsed arity matches `metaData.params`.
  */
 
 export type IoPair = { input: string; output: string };
@@ -102,15 +97,15 @@ export function parseValue(raw: string): unknown {
 }
 
 /**
- * Parse the expected output, which may be a list, scalar, a bare word, or — for 23 records
- * in the corpus — a Python error message.
+ * Parse the expected output, which may be a list, a scalar, a bare word, or (for 23 records
+ * in the corpus) a Python error message.
  *
  * Three outcomes, because the third is a real category:
  *   - `ok`        a comparable value
  *   - `string`    a bare word like `aa`, which is a legitimate string answer
  *   - `poisoned`  a stored exception message, meaning the dataset's own reference solution
  *                 crashed on this case. Grading against it would fail every correct
- *                 submission, so it must be dropped rather than treated as an expectation.
+ *                 submission, so it is dropped, not treated as an expectation.
  */
 export type ExpectedResult =
   | { kind: "ok"; value: unknown }

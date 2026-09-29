@@ -2,9 +2,9 @@
  * Design concept library tests.
  *
  * The two checks that matter are the index range and the prompt slugs. An out-of-range
- * `probeFamilies` index silently resolves to `undefined` in the endpoint's name lookup, and a
- * typo'd prompt slug renders a chip that switches to a round that cannot start — both are
- * invisible until a user clicks, which is why they are asserted here rather than trusted.
+ * `probeFamilies` index resolves to `undefined` in the endpoint's name lookup with no error,
+ * and a typo'd prompt slug renders a chip that switches to a round that cannot start. Both
+ * are invisible until a user clicks, so they are asserted here.
  */
 
 import { describe, expect, test } from "bun:test";

@@ -1,20 +1,13 @@
 /**
- * The design round — interviewer turn and grading.
- *
- * Order of operations, mirroring `tutor/index.ts` exactly and for the same reasons:
- *
- *   1. Read the session row and its transcript.
- *   2. Compute the probe ceiling from phase + probes already asked — NEVER from the
- *      candidate's message. This is the injection-proof boundary.
- *   3. Ask the model for one interviewer turn via a forced tool call, with the ceiling's
- *      permitted probe family and the prompt's answer key.
- *   4. Validate the payload shape; repair once if malformed (reuses `structured`).
- *   5. Run the design-reveal detector against the ceiling.
- *   6. Regenerate once quoting the violation; on a second violation, withhold the turn
- *      rather than leak.
- *   7. Append both turns to the transcript and increment the probe count when a new family
- *      was used.
- *
+ * The design round: interviewer turn and grading.
+ * Order of operations, mirroring `tutor/index.ts` and for the same reasons:
+ * 1. Read the session row and its transcript.
+ * 2. Compute the probe ceiling from phase + probes already asked, NEVER from the candidate's message. This is the injection-proof boundary.
+ * 3. Ask the model for one interviewer turn via a forced tool call, with the ceiling's permitted probe family and the prompt's answer key.
+ * 4. Validate the payload shape; repair once if malformed (reuses `structured`).
+ * 5. Run the design-reveal detector against the ceiling.
+ * 6. Regenerate once quoting the violation; on a second violation, withhold the turn.
+ * 7. Append both turns to the transcript and increment the probe count when a new family was used.
  * The candidate's message reaches the model as context and never reaches the policy core.
  */
 
@@ -55,17 +48,17 @@ export type TranscriptEntry = {
   ts: string;
   /**
    * The probe family index this turn used, or null. Only interviewer turns carry one, and
-   * only when the turn actually asked a new probe — a clarification is not a probe. This is
-   * what `countProbes` counts, so the ceiling ladder cannot be advanced by sending more
-   * messages, only by receiving more probes.
+   * only when the turn asked a new probe; a clarification is not a probe. This is what
+   * `countProbes` counts, so the ceiling ladder can only be advanced by receiving more
+   * probes, not by sending more messages.
    */
   probe?: number | null;
   /**
    * Whether the turn was withheld, and which family it named.
    *
-   * Stored rather than recomputed so a restored round shows the same conversation it had
-   * before the reload — including the fact that a leak was refused, which is the single most
-   * useful thing the transcript records.
+   * Stored, not recomputed, so a restored round shows the same conversation it had before
+   * the reload, including the fact that a leak was refused, which is the single most useful
+   * thing the transcript records.
    */
   withheld?: boolean;
   probeName?: string | null;
@@ -141,7 +134,7 @@ const finite = (v: unknown): v is number => typeof v === "number" && Number.isFi
 /**
  * The valid subset of a value claiming to be a shape list.
  *
- * Every field is checked rather than trusted: these numbers are interpolated straight into SVG
+ * Every field is checked, not trusted: these numbers are interpolated straight into SVG
  * geometry attributes, and an unparseable shape would render as a broken or missing element with no
  * error anywhere. The list is a working aid, so dropping a bad entry is better than rejecting the
  * whole sketch. Returns `[]` for anything that is not an array.
@@ -190,12 +183,12 @@ function parseTranscript(raw: string): TranscriptEntry[] {
 }
 
 /**
- * The phase the round is in, from the DRAFTS rather than from a client-supplied value.
+ * The phase the round is in, from the DRAFTS, not from a client-supplied value.
  *
  * A phase the candidate has not started is not the phase they are in, so this walks the
  * phases in order and stops at the first empty draft. The consequence is that the ceiling
- * cannot be moved by sending a phase string to the turn endpoint — the only way to advance
- * is to actually write the previous phase, which is what the round is meant to measure.
+ * cannot be moved by sending a phase string to the turn endpoint; the only way to advance
+ * is to write the previous phase, which is what the round is meant to measure.
  *
  * The exception is the wrap-up: the trade-off discussion has no draft of its own in the same
  * sense, so once the deep dive is written the round is in the wrap-up.
@@ -212,9 +205,9 @@ export function phaseFromDrafts(drafts: Record<string, string>): DesignPhase {
  * How many distinct probe families the interviewer has already asked.
  *
  * Distinct, not total: asking the same family twice is a sign the first answer did not land,
- * and the ladder is meant to escalate rather than to be farmed by re-asking. Counted from the
- * transcript rather than from a stored counter, so a replayed transcript always yields the
- * same number.
+ * and the ladder is meant to escalate, not to be farmed by re-asking. Counted from the
+ * transcript, not from a stored counter, so a replayed transcript always yields the same
+ * number.
  */
 function countProbes(transcript: TranscriptEntry[]): number {
   const families = new Set<number>();
@@ -297,7 +290,7 @@ const TURN_TOOL: ToolDef = {
 
 type Turn = { message: string; probe_level: number | null; reveals_design: boolean };
 
-/** Validate the tool payload. Shape only — the detector handles content. */
+/** Validate the tool payload. Shape only; the detector handles content. */
 function validateTurn(value: unknown): { ok: true; value: Turn } | { ok: false; missing: string[] } {
   if (typeof value !== "object" || value === null) return { ok: false, missing: ["<root>"] };
   const v = value as Record<string, unknown>;
@@ -364,7 +357,7 @@ function buildTurnMessages(args: {
 
   const parts = [`# Prompt: ${args.prompt.title}`, "", args.prompt.statement];
 
-  // The drafts are the candidate's own words, so showing them is context rather than a hint.
+  // The drafts are the candidate's own words, so showing them is context, not a hint.
   const drafts = DESIGN_PHASES.map((p) => {
     const text = (args.session.drafts[p.id] ?? "").trim();
     return text.length > 0 ? `## ${p.label}\n${text}` : null;
@@ -412,7 +405,7 @@ export async function designTurn(sessionId: number, message: string): Promise<De
   if (!prompt) throw new Error(`unknown design prompt: ${session.slug}`);
 
   // The ceiling comes from the drafts (which phase) and the transcript (how many probes).
-  // Neither is the candidate's current message, which is the whole point.
+  // Neither is the candidate's current message.
   const ceiling = probeCeiling({ phase: session.phase, probesAsked: session.probesAsked });
   const reason = ceilingReason({ phase: session.phase, probesAsked: session.probesAsked });
 
@@ -496,8 +489,8 @@ export async function designTurn(sessionId: number, message: string): Promise<De
   ];
 
   // `probe_level` records the deepest family reached, so the audit trail shows what the
-  // candidate was actually asked rather than only what they answered. Stored as the family
-  // INDEX (not a count), matching how `probeCeiling` reads it.
+  // candidate was asked, not only what they answered. Stored as the family INDEX (not a
+  // count), matching how `probeCeiling` reads it.
   const previousDeepest = readRow(sessionId).probe_level;
   const deepest = probeLevel === null ? previousDeepest : Math.max(previousDeepest, probeLevel);
 
@@ -613,7 +606,7 @@ function validateGrade(value: unknown): { ok: true; value: GradePayload } | { ok
 /**
  * Whether a quoted evidence string actually appears in the candidate's own text.
  *
- * The check that makes the evidence requirement load-bearing: a model that invents a quote to
+ * The check that gives the evidence requirement teeth: a model that invents a quote to
  * justify a score gets that score discarded. Whitespace is normalised and case is ignored
  * because the model reformats quotes, and the point is provenance, not byte equality.
  */
@@ -623,7 +616,7 @@ export function quoteAppears(quote: string, corpus: string): boolean {
   const c = corpus.toLowerCase().replace(/\s+/g, " ");
   if (c.includes(q)) return true;
 
-  // A long quote may be trimmed by the model, so fall back to its first 6 words — long
+  // A long quote may be trimmed by the model, so fall back to its first 6 words: long
   // enough that a coincidence is implausible, short enough to survive truncation.
   const head = q.split(" ").slice(0, 6).join(" ");
   return head.length >= 8 && c.includes(head);
@@ -753,7 +746,7 @@ export async function gradeDesign(sessionId: number): Promise<DesignGradeResult>
   ) as Record<RubricDimension, number>;
   const grade = gradeFromScores(numeric);
 
-  // The round's duration is derived from `started_at` rather than tracked by the client: a
+  // The round's duration is derived from `started_at`, not tracked by the client: a
   // client-supplied number is one more thing that can be wrong, and the server already knows
   // when the round began.
   const seconds = (Date.now() - new Date(session.startedAt).getTime()) / 1000;
@@ -779,15 +772,14 @@ export async function gradeDesign(sessionId: number): Promise<DesignGradeResult>
 /**
  * The most recent round that was never finished and has work in it, if any.
  *
- * This is what makes `/draft` persistence worth having. A reload is the exact moment a draft
- * would be lost, so a round that is still in progress has to be findable again — otherwise the
- * server-side draft is written and never read.
- *
- * "Has work in it" is load-bearing rather than incidental. Selecting a prompt creates a
- * session immediately, so a candidate who clicks three prompts while deciding orphans two
- * empty rows — and a plain "newest unfinished" rule would resume the most recent abandoned
- * click instead of the round they are actually writing. A session with neither a draft nor a
- * transcript is indistinguishable from an accidental click, so it is not a round to resume.
+ * This is what makes `/draft` persistence worth having. A reload is the moment a draft would
+ * be lost, so a round still in progress has to be findable again; otherwise the server-side
+ * draft is written and never read.
+ * "Has work in it" matters. Selecting a prompt creates a session immediately, so a candidate
+ * who clicks three prompts while deciding orphans two empty rows, and a plain "newest
+ * unfinished" rule would resume the most recent abandoned click instead of the round they are
+ * writing. A session with neither a draft nor a transcript is indistinguishable from an
+ * accidental click, so it is not a round to resume.
  */
 export function latestOpenSession(): DesignSession | null {
   const row = db

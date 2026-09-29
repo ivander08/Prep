@@ -1,26 +1,14 @@
 /**
  * Multi-language execution.
  *
- * Each language gets its own harness rather than a shared abstraction, because the binding
- * rule genuinely differs:
- *
- *   python3     `class Solution:` + method taking `self`  -> instantiate and bind
- *   javascript  `var twoSum = function(...)`              -> bare function, no class
- *   java        `class Solution { public ... }`           -> instantiate and bind
- *   cpp         `class Solution { public: ... }`          -> instantiate and bind
- *   go          `func twoSum(...)`                        -> bare function, no class
- *
- * Getting this wrong fails EVERY submission rather than failing loudly, so each language is
- * verified against a known-good and a known-bad solution in runner.test.ts.
- *
- * Java and C++ harnesses live in `harnesses/` as real files. Generating them from string
- * templates meant every backslash and quote had to survive three escaping layers (source,
- * template, target language), and it repeatedly produced uncompilable code. A file has
- * nothing to escape. C++ additionally needs type-directed codegen, because a statically
- * typed language cannot build a generic call site the way the other four manage.
- *
- * Windows detail: a compiled binary must be invoked by its absolute path. A POSIX-style
- * `./name` returns "command not found" (exit 127) even when the file exists.
+ * Binding differs per language: python3 (`class Solution:` plus a method taking `self`), java and
+ * cpp (`class Solution { public ... }`, `class Solution { public: ... }`) are instantiated and
+ * bound; javascript (`var twoSum = function(...)`) and go (`func twoSum(...)`) are bare functions.
+ * A wrong binding fails every submission with no clear error, so each language is checked in
+ * runner.test.ts against a known-good and a known-bad solution. Java and C++ harnesses are real
+ * files under `harnesses/`: string templates had to survive three escaping layers and repeatedly
+ * produced uncompilable code, and C++ needs type-directed codegen besides. On Windows a compiled
+ * binary must be invoked by absolute path; `./name` returns exit 127.
  */
 
 import { writeFile, rm, mkdir } from "node:fs/promises";
@@ -66,7 +54,7 @@ const payloadLiteral = (p: Payload) => JSON.stringify(p);
  * Python: `class Solution` with a method taking `self`.
  *
  * The payload arrives base64-encoded as a literal so user code and payload never share a
- * stream — concatenating them onto stdin made `json.loads()` fail on every run.
+ * stream. Concatenating them onto stdin made `json.loads()` fail on every run.
  */
 function pythonProgram(code: string, payload: Payload): string {
   const b64 = Buffer.from(payloadLiteral(payload)).toString("base64");
@@ -127,12 +115,12 @@ console.log(JSON.stringify({ cases: out, passed, total: P.cases.length }));`;
 /**
  * Go: a bare `func fn(...)`, no class.
  *
- * `extraImports` is load-bearing for the concepts track. A Go file's import declarations must
- * precede every other declaration, and the user's code is spliced in after the harness's own
- * imports — so user code CANNOT add an import of its own. Without this, a Go concept could not
- * use `sort` or `strings`, and "sort this" is not a lesson you can teach with a hand-rolled
- * bubble sort. The imports are emitted as a second import block, which Go allows; nothing is
- * added by default because Go rejects unused imports, so a blanket list would break every
+ * `extraImports` carries the standard library packages a concept needs. A Go file's import
+ * declarations must precede every other declaration, and the user's code is spliced in after the
+ * harness's own imports, so user code cannot add an import of its own. Without this a Go concept
+ * could not use `sort` or `strings`, and "sort this" is not a lesson you can teach with a
+ * hand-rolled bubble sort. The imports are emitted as a second import block, which Go allows.
+ * Nothing is added by default: Go rejects unused imports, so a blanket list would break every
  * DSA submission.
  */
 function goProgram(code: string, payload: Payload, extraImports: string[] = []): string {
@@ -341,8 +329,8 @@ async function cppProgram(code: string, payload: Payload, meta: ProblemMeta | nu
   // those exist only in the user's signature, not in this scope.
   const callArgs = meta?.params?.map((_, i) => `a${i}`).join(", ") ?? "";
 
-  // Without a supported signature, emit a harness that reports the limitation rather than
-  // one that silently passes or fails to compile with a confusing error.
+  // Without a supported signature, emit a harness that reports the limitation, so a failure
+  // never looks like a pass or an opaque compile error.
   const body =
     unpack !== null && compare !== null && render !== null
       ? `  string argsBody = mini::trim(cases[i].args);
@@ -461,7 +449,7 @@ export async function runInLanguage(opts: {
       const first = await run([...lang.command, file], timeoutMs);
       const missing = missingGoPackages(first.err);
       if (missing.length > 0) {
-        // Retry once with the packages the compiler named. See `missingGoPackages` — Go
+        // Retry once with the packages the compiler named. See `missingGoPackages`: Go
         // requires imports to precede all declarations and the harness splices user code
         // after its own imports, so a submission cannot import anything itself.
         const retryFile = join(dir, `main_retry.${lang.ext}`);

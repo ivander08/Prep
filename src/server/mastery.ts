@@ -1,25 +1,14 @@
 /**
- * Per-pattern mastery — the "what am I actually weak at" view.
- *
- * The signal is Elo over attempts, per roadmap pattern. Elo rather than a percentage
- * because a pattern's difficulty is not fixed: solving 6/10 in Dynamic Programming is a
- * different achievement from 6/10 in Arrays & Hashing, and a flat solve-rate hides that.
- * The problem's difficulty seeds the expected score, so beating a Hard moves you more than
- * beating an Easy.
- *
- * Three inputs beyond pass/fail, all of which are the reason this only works when you
- * solve inside the tool:
- *
- *   - HINTS. Passing after hints is weaker evidence than passing unaided, so the effective
- *     score is discounted.
- *   - TIME. Solving well inside the limit is stronger evidence.
- *   - RE-SOLVE. A problem you previously solved and then failed is the strongest negative
- *     signal there is — it is the "memorized it, didn't learn it" case.
- *
- * Elo is deliberately the simple choice here. BKT (pyBKT) gives a more principled mastery
- * estimate but needs a Python batch job and far more data per pattern than one person
- * generates in a few months. `[INFERENCE]` Elo is the right complexity for this data
- * volume; revisit if a pattern ever exceeds ~100 attempts.
+ * Per-pattern mastery, the "what am I actually weak at" view. Elo over attempts, per roadmap
+ * pattern: a flat solve-rate would hide that difficulty is not fixed (6/10 in Dynamic
+ * Programming is not 6/10 in Arrays & Hashing), and the problem's difficulty seeds the
+ * expected score, so beating a Hard moves you more than beating an Easy. Three inputs beyond
+ * pass/fail, all needing in-tool solving: hints (a hint-assisted pass is discounted), time
+ * (solving well inside the limit is stronger evidence), re-solve (a previously solved problem
+ * failed again is the strongest negative signal, the "memorized it, didn't learn it" case).
+ * BKT (pyBKT) is more principled than Elo but needs a Python batch job and more data per
+ * pattern than one person generates in a few months. `[INFERENCE]` Elo fits this data volume;
+ * revisit if a pattern ever exceeds ~100 attempts.
  */
 
 import { db } from "./db.ts";
@@ -54,9 +43,9 @@ function expectedScore(playerElo: number, problemElo: number): number {
 /**
  * Recompute mastery for every pattern from the attempt log.
  *
- * Full recomputation rather than incremental updates: the attempt history for one person
- * is small (thousands of rows at most), and a derived table that can drift from its source
- * is worse than one that is cheap to rebuild. Called after each graded attempt.
+ * Full recomputation, not incremental updates: the attempt history for one person is small
+ * (thousands of rows at most), and a derived table that can drift from its source is worse
+ * than one that is cheap to rebuild. Called after each graded attempt.
  */
 export function recomputeMastery(): number {
   const attempts = db
@@ -162,7 +151,7 @@ export function masteryReport(): MasteryRow[] {
 }
 
 /**
- * Hint dependence — how often you solve with help rather than unaided.
+ * Hint dependence: how often you solve with help.
  *
  * A high rate is not necessarily bad early in a pattern, but it is the thing that makes a
  * solve feel fluent while leaving you unable to reproduce it.

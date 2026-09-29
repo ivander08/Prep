@@ -1,18 +1,14 @@
 /**
- * System design prompts — the shared catalogue.
+ * System design prompts: the shared catalogue.
  *
- * One entry per prompt, held in code rather than a table, the same way `concepts/catalog.ts`
- * and `patterns.ts` are: a prose edit is then a source edit, not a migration.
+ * One entry per prompt, held in code like `concepts/catalog.ts` and `patterns.ts`, so a prose
+ * edit is a source edit, not a migration.
  *
- * THE ANSWER KEY IS HERE AND MUST NOT REACH THE CLIENT. `functional`, `nonFunctional`,
- * `estimates`, `deepDives` and `commonMistakes` are what the interviewer confirms when
- * asked, not a script it reads out. The whole point of the requirements phase is that the
- * candidate asks; a prompt that volunteers its requirements has removed the phase. The
- * endpoint therefore serves only `{slug, title, statement}`.
- *
- * `estimates` carry the working as well as the number, because the estimation phase is
- * graded on whether the candidate can produce a defensible order of magnitude, and an
- * answer key without the arithmetic cannot check that.
+ * The answer key is here and must not reach the client. `functional`, `nonFunctional`,
+ * `estimates`, `deepDives` and `commonMistakes` are what the interviewer confirms when asked,
+ * not a script it reads out: the requirements phase only works if the candidate asks. The
+ * endpoint serves only `{slug, title, statement}`. `estimates` carry the working as well as
+ * the number: the phase is graded on a defensible order of magnitude.
  */
 
 export type DesignPrompt = {
@@ -21,9 +17,9 @@ export type DesignPrompt = {
   /** The one-line prompt as an interviewer would say it. */
   statement: string;
   /**
-   * Requirements the interviewer will confirm if asked. NOT volunteered — the whole point of
-   * the requirements phase is that the candidate asks, so this is the answer key, not a
-   * script the interviewer reads out.
+   * Requirements the interviewer will confirm if asked. Not volunteered: the requirements
+   * phase only works if the candidate asks, so this is the answer key, not a script the
+   * interviewer reads out.
    */
   functional: string[];
   nonFunctional: string[];
@@ -35,7 +31,7 @@ export type DesignPrompt = {
   commonMistakes: string[];
   /**
    * The executable component in the Build track that implements part of this design, or
-   * null. This is what makes the two halves one exercise rather than two.
+   * null. This is what makes the two halves one exercise.
    */
   componentSlug: string | null;
 };

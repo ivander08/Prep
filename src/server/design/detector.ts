@@ -17,10 +17,9 @@ export type { Violation };
 /**
  * What the detector is allowed to see.
  *
- * The candidate's message is deliberately NOT here. The detector judges the interviewer's
- * draft against the ceiling; a candidate message cannot make the draft leak more or less, and
- * letting one into this function would create the path the whole policy core exists to
- * prevent.
+ * The candidate's message is not here. The detector judges the interviewer's draft against
+ * the ceiling; a candidate message cannot make the draft leak more or less, and letting one
+ * into this function would create the path the policy core exists to prevent.
  */
 export type DesignTurnDraft = {
   message: string;
@@ -31,13 +30,12 @@ export type DesignTurnDraft = {
 };
 
 /**
- * A component list of this length or more, in prose, is a design handed over rather than a
- * question asked. Five is deliberately low: a genuine question names at most the one
- * component it is asking about.
+ * A component list of this length or more, in prose, is a design handed over, not a question
+ * asked. Five is low on purpose: a question names at most the one component it is about.
  */
 const COMPONENT_LIST_THRESHOLD = 5;
 
-/** Component nouns, used only to count a list — the same broad vocabulary as the signals. */
+/** Component nouns, used only to count a list. The same broad vocabulary as the signals. */
 const COMPONENT_RE =
   /\b(load balancer|api gateway|gateway|cache|redis|memcached|cdn|database|postgres|mysql|cassandra|dynamo\w*|mongodb|object store|blob store|s3|queue|kafka|rabbitmq|sqs|pub\/sub|message broker|worker|scheduler|shard|partition|replica|index|elasticsearch|zookeeper|etcd|service discovery|websocket|web socket|stream processor|aggregator|coordinator|rate limiter|bloom filter|consistent hash|write-ahead log)\b/gi;
 
@@ -59,7 +57,7 @@ export function countComponents(text: string): number {
 }
 
 /**
- * True when the draft is a finished architecture rather than a question about one.
+ * True when the draft is a finished architecture, not a question about one.
  *
  * Two independent shapes: a long component list, or a schema/build order. Either alone is
  * enough, because either alone is the answer.
@@ -73,14 +71,14 @@ export function looksLikeDesignHandover(text: string): boolean {
 /**
  * Check the interviewer's draft against the probe ceiling.
  *
- * The permitted material depends on the ceiling rather than the phase string, so the two can
- * never disagree — the ceiling is the single source of truth, and `policy.ts` owns it.
+ * The permitted material depends on the ceiling, not the phase string, so the two can never
+ * disagree: the ceiling is the single source of truth, and `policy.ts` owns it.
  *
  * At ceiling 0 (requirements and estimation) the interviewer may confirm and ask, and nothing
  * else: no component list, no schema, no build order. From the high-level phase onward the
  * candidate has committed to components themselves, so naming several back to them is
- * confirmation rather than a leak — which is why the component-list check is gated on the
- * ceiling and not applied throughout.
+ * confirmation, not a leak. That is why the component-list check is gated on the ceiling and
+ * not applied throughout.
  */
 export function detectDesignViolations(
   turn: DesignTurnDraft,
@@ -111,8 +109,8 @@ export function detectDesignViolations(
   }
 
   // A model that claims a probe family above the ceiling has escalated on its own. Checked
-  // as a self-report rather than inferred from the text, because the text of a hard question
-  // and an easy one is not reliably distinguishable.
+  // as a self-report, not inferred from the text, because the text of a hard question and an
+  // easy one is not reliably distinguishable.
   if (turn.probeLevel !== null && turn.probeLevel > opts.maxProbeLevel) {
     violations.push({
       kind: "self-report",

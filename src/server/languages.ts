@@ -1,19 +1,13 @@
 /**
  * Multi-language execution harnesses.
- *
- * The binding rule differs per language, and getting it wrong fails EVERY submission —
- * that was the first bug found in Phase 1. LeetCode's stubs are:
- *
+ * The binding rule differs per language, and getting it wrong fails EVERY submission; that was the first bug found in Phase 1. LeetCode's stubs are:
  *   Python      `class Solution:` with a method taking `self`  -> instantiate + bind
- *   JavaScript  `var twoSum = function(...)` — a bare function  -> no class at all
+ *   JavaScript  `var twoSum = function(...)`, a bare function  -> no class at all
  *   Java        `class Solution { public int[] twoSum(...) }`  -> instantiate + bind
  *   C++         `class Solution { public: vector<int> twoSum(...) }`
  *   Go          `func twoSum(nums []int, target int) []int`    -> bare function, no class
- *
- * Two of the five have no class. Applying the Python rule to JS fails everything, and vice
- * versa, so each language gets its own harness rather than a shared abstraction.
- *
- * VERIFIED LOCALLY: python 3.13, node 22, java 17, gcc/g++ 13.2, go. No rustc.
+ * Two of the five have no class. Applying the Python rule to JS fails everything, and the reverse, so each language gets its own harness.
+ * Verified locally: python 3.13, node 22, java 17, gcc/g++ 13.2, go. No rustc.
  */
 
 export type LanguageId = "python3" | "javascript" | "java" | "cpp" | "go";
@@ -46,8 +40,8 @@ export function languageById(id: string): LanguageSpec {
 /**
  * Check which runtimes actually exist on this machine.
  *
- * Reported to the UI rather than assumed: a language listed but not installed should be
- * visibly unavailable, not fail at submit time.
+ * Reported to the UI, not assumed: a language listed but not installed should be visibly
+ * unavailable, not fail at submit time.
  */
 export async function detectAvailableLanguages(): Promise<Record<string, boolean>> {
   const results: Record<string, boolean> = {};

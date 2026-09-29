@@ -1,23 +1,15 @@
 /**
- * The tutor turn.
+ * The tutor turn: read attempt state, compute the ceiling, ask the model, validate, then run the
+ * code-reveal detector against the ceiling.
  *
- * Order of operations, and why:
+ * The ceiling comes from the deterministic policy core, which never sees the student's message:
+ * that is the injection-proof boundary. The message reaches the model as context only, as
+ * untrusted input.
  *
- *   1. Read attempt state from the database (attempts, hints used, elapsed time).
- *   2. Compute the ceiling with the deterministic policy core — which never sees the
- *      student's message. This is the injection-proof boundary.
- *   3. Ask the model for a turn, via a forced tool call.
- *   4. Validate the payload shape; repair once if malformed.
- *   5. Run the code-reveal detector against the ceiling.
- *   6. If the detector fires, REGENERATE once with the violation quoted back. If it fires
- *      again, refuse to show the turn rather than leak.
- *   7. Record everything in `tutor_turns` — including rejections. Over-blocking is a
- *      measured failure, so it has to be visible, not silent.
- *
- * The student's message is passed to the model as context but never to the policy core,
- * and the model is instructed to treat it as untrusted.
+ * A malformed payload is repaired once. If the detector fires, the turn is regenerated once with
+ * the violation quoted back; if it fires again the turn is withheld instead of leaked. Every turn
+ * is recorded in `tutor_turns`, rejections included: over-blocking is a measured failure.
  */
-
 import { db } from "../db.ts";
 import { chat, structured, KenariError, type CallMeta, type ChatMessage, type ToolDef } from "./client.ts";
 import { hintCeiling, ceilingReason, HINT_RULES, LEVEL_LABEL } from "./policy.ts";
@@ -67,9 +59,9 @@ const TURN_TOOL: ToolDef = {
           type: "string",
           description: "One question that hands the next step back to the student.",
         },
-        // Deliberately NOT in `required`. A missing `focus` is normal (approach-level hints
-        // have no line to point at), and putting it in `required` would make every such turn
-        // trigger the validate/repair retry — burning a second call to add an empty array.
+        // NOT in `required`. A missing `focus` is normal (approach-level hints have no line to
+        // point at), and `required` would make every such turn trigger the validate/repair
+        // retry, burning a second call to add an empty array.
         focus: {
           type: "array",
           maxItems: 3,
@@ -98,7 +90,7 @@ const TURN_TOOL: ToolDef = {
   },
 };
 
-/** Validate the tool payload. Shape only — the detector handles content. */
+/** Validate the tool payload. Shape only; the detector handles content. */
 function validateTurn(value: unknown): { ok: true; value: Turn } | { ok: false; missing: string[] } {
   const missing: string[] = [];
   if (typeof value !== "object" || value === null) return { ok: false, missing: ["<root>"] };
@@ -120,7 +112,7 @@ function validateTurn(value: unknown): { ok: true; value: Turn } | { ok: false; 
       contains_solution: v.contains_solution as boolean,
       contains_real_code: v.contains_real_code as boolean,
       next_question: (v.next_question as string).trim(),
-      // Filtered, not validated. A malformed entry is dropped rather than triggering the
+      // Filtered, not validated. A malformed entry is dropped instead of triggering the
       // repair retry: `focus` is a nicety, and failing a whole turn over it would cost the
       // student a second model call to fix something they may not even need.
       focus: parseFocus(v.focus),
@@ -132,7 +124,7 @@ function validateTurn(value: unknown): { ok: true; value: Turn } | { ok: false; 
  * Keep only well-shaped focus entries.
  *
  * A quote with no `why` would produce a highlight with nothing to say, and a non-string
- * quote cannot be located in the document — both are dropped.
+ * quote cannot be located in the document. Both are dropped.
  */
 export function parseFocus(raw: unknown): FocusEntry[] {
   if (!Array.isArray(raw)) return [];
@@ -194,9 +186,8 @@ function buildMessages(args: {
     "- Always end by handing the next step back with a question.",
   ];
 
-  // Only meaningful when there is code to point at and the ceiling is high enough that
-  // naming a specific line is not itself a giveaway. Not offered at H6, where the point is
-  // the answer rather than the student's line.
+  // Only meaningful when there is code to point at and the ceiling is high enough that naming
+  // a specific line is not itself a giveaway. Not offered at H6, where the point is the answer.
   const canFocus = args.ceiling >= 2 && args.ceiling < 6 && args.code.trim().length > 0;
   if (canFocus) {
     system.push(
@@ -216,10 +207,10 @@ function buildMessages(args: {
   }
 
   if (args.code.trim().length > 0) {
-    // Numbered so "line 4" is unambiguous, and so the model can quote a line exactly instead
-    // of reconstructing it. The numbers are a prompt aid only — `focus.quote` is still a
-    // verbatim substring, because the numbering the model reads is not the numbering the
-    // editor shows once the student keeps typing.
+    // Numbered so "line 4" is unambiguous and the model can quote a line instead of
+    // reconstructing it. The numbers are a prompt aid only: `focus.quote` is still a verbatim
+    // substring, because the numbering the model reads is not the numbering the editor shows
+    // once the student keeps typing.
     const numbered = args.code
       .trim()
       .split("\n")
@@ -311,11 +302,11 @@ export async function tutorTurn(args: {
         turn = r2.value;
         violations = [];
         // The turn shown is clean, but the student should still be able to see that the
-        // first attempt leaked and was replaced — silently rewriting would hide a real
+        // first attempt leaked and was replaced. Rewriting with no note would hide a real
         // failure of the model.
         rejectionNote = `regenerated: ${firstAttemptProblem}`;
       } else {
-        // Two leaks in a row: refuse rather than show the answer.
+        // Two leaks in a row: refuse, and do not show the answer.
         refused = true;
         violations = retryViolations;
         rejectionNote = `withheld: ${violationBrief(retryViolations)}`;
@@ -386,17 +377,14 @@ export async function tutorTurn(args: {
 /**
  * Whether to attach code focus at all.
  *
- * Gated here rather than in the UI because the ceiling is server state the client must not
- * be able to argue with. Three exclusions, each for a different reason:
+ * Gated here and not in the UI because the ceiling is server state the client must not be able
+ * to argue with. Three exclusions: ceiling < 2 has nothing specific to point at, and a highlight
+ * asserts a precision the hint does not have; ceiling >= 6 is about the answer, not the student's
+ * line; no code means a quote could not come from the student's own code, and the prompt never
+ * offered the option.
  *
- *   ceiling < 2  — there is nothing specific to point at yet, and a highlight asserts a
- *                  precision the hint does not have.
- *   ceiling >= 6 — the point is the answer, not the student's line.
- *   no code      — a quote can only come from the student's own code, so there is nothing
- *                  to point at (and the prompt never offered the option).
- *
- * A model that ignores the field simply produces no highlight; this degrades to "no
- * highlight" rather than erroring.
+ * A model that ignores the field produces no highlight, so this degrades to "no highlight"
+ * instead of erroring.
  */
 function emitFocus(focus: FocusEntry[] | undefined, ceiling: number, code: string): FocusEntry[] {
   if (!focus || focus.length === 0) return [];
@@ -408,9 +396,9 @@ function emitFocus(focus: FocusEntry[] | undefined, ceiling: number, code: strin
 /**
  * Post-attempt review: complexity, style, and why the tests failed.
  *
- * Correctness is NOT asked of the model here — the executor already decided that. This
- * only explains. Complexity in particular is a hedged opinion: the best published model
- * scores ~41% on time-complexity prediction, so it is labelled as an estimate.
+ * Correctness is not asked of the model here; the executor already decided it. This only
+ * explains. Complexity is a hedged opinion, labelled as an estimate, because the best
+ * published model scores ~41% on time-complexity prediction.
  */
 export type ReviewResult = {
   complexity: string;
@@ -426,21 +414,16 @@ export type ReviewResult = {
 };
 
 /**
- * Post-attempt review: complexity, style, and — the part that answers "is there better?" —
- * the stronger approach if one exists.
+ * Post-attempt review: complexity, style, and the stronger approach if one exists.
  *
- * Correctness is NOT asked of the model here. The executor already decided it, and asking a
- * model to re-judge correctness invites it to contradict a deterministic result. This only
- * explains and compares.
+ * Correctness is not asked of the model here. The executor already decided it, and asking a
+ * model to re-judge correctness invites it to contradict a deterministic result. This explains
+ * and compares. Complexity is labelled an estimate in the UI: the best published model scores
+ * ~41% on time-complexity prediction.
  *
- * Complexity is a hedged opinion and labelled as such in the UI: the best published model
- * scores ~41% on time-complexity prediction, so it is presented as an estimate rather than a
- * verdict.
- *
- * The "better approach" field is the honest answer to a question the test runner cannot
- * answer. Passing tests mean the solution is CORRECT, not that it is optimal — a brute-force
- * Two Sum passes all 80 assertions and is still O(n²). The two judgements are deliberately
- * separate, and the reply shape forces the model to state which one applies.
+ * The "better approach" field answers a question the test runner cannot. Passing tests mean the
+ * solution is CORRECT, not that it is optimal: a brute-force Two Sum passes all 80 assertions and
+ * is still O(n²). The reply shape forces the model to state which judgement applies.
  */
 export async function reviewAttempt(args: {
   slug: string;
@@ -502,7 +485,7 @@ export async function reviewAttempt(args: {
   const betterRaw = /Better:\s*(.+)/i.exec(text)?.[1]?.trim() ?? null;
   const detailRaw = /BetterDetail:\s*([\s\S]+)/i.exec(text)?.[1]?.trim() ?? null;
 
-  // Treat "none"/"n/a"/"already optimal" as no stronger approach rather than printing it.
+  // Treat "none"/"n/a"/"already optimal" as no stronger approach, so it is not printed.
   const saysOptimal = !betterRaw || /^(none|n\/a|already optimal)/i.test(betterRaw);
   const betterApproach = saysOptimal ? null : betterRaw;
   const betterDetail = saysOptimal || !detailRaw || /^n\/a/i.test(detailRaw) ? null : detailRaw;

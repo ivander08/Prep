@@ -1,17 +1,14 @@
 /**
- * kenari.id client — model routing, fallback, and the mandatory validate/repair loop.
- *
- * THREE RULES, all discovered by measurement rather than from docs (dossier §6.2):
- *
- *   1. `response_format: json_schema` IS NOT ENFORCED. Across 8 models it returned valid
+ * kenari.id client: model routing, fallback, and the validate/repair loop.
+ * Three rules, all measured against the live gateway (dossier §6.2):
+ *   1. `response_format: json_schema` is not enforced. Across 8 models it returned valid
  *      JSON with the wrong keys, every time. Never build structured output on it.
- *   2. A FORCED TOOL CALL IS STILL NOT A GUARANTEE. In 1 of 4 measured runs the model
+ *   2. A forced tool call is still not a guarantee. In 1 of 4 measured runs the model
  *      omitted a field declared in `required`. Validate and repair, always.
- *   3. SET `max_tokens >= 2000`. Reasoning models return `content: null` with
+ *   3. Set `max_tokens >= 2000`. Reasoning models return `content: null` with
  *      `finish_reason: "length"` when the budget is exhausted by reasoning alone.
- *
  * Also: 3 of 8 `:free` models listed in `GET /v1/models` returned `model_not_found` when
- * called, so model ids are never hardcoded — the chain is probed at call time.
+ * called, so model ids are never hardcoded. The chain is probed at call time.
  */
 
 import { getRoleModel, type Role } from "../models.ts";
@@ -22,12 +19,12 @@ const BASE = process.env.KENARI_BASE_URL ?? "https://kenari.id/v1";
 /**
  * The API key, from the environment if set, otherwise from the local database.
  *
- * The env var wins so a shell-provided key is never silently overridden by a stale value
- * saved in the UI. The stored key is plaintext in `prep.db` — the same file that already
- * holds all progress, on a single-user machine. The UI shows it masked and offers Clear.
+ * The env var wins so a shell-provided key is not overridden by a stale value saved in the UI.
+ * The stored key is plaintext in `prep.db`, the same file that already holds all progress, on
+ * a single-user machine. The UI shows it masked and offers Clear.
  *
- * Read per call rather than cached at module load: the whole point of the settings screen
- * is that saving a key takes effect without restarting the server.
+ * Read per call, not cached at module load: saving a key in the settings screen must take
+ * effect without restarting the server.
  */
 export function apiKey(): string | null {
   return process.env.KENARI_API_KEY ?? getMeta("kenari_api_key") ?? null;
@@ -35,11 +32,11 @@ export function apiKey(): string | null {
 
 /**
  * Fallback chain, cheapest useful model first. `deepseek-v4-1-flash` is Rp 150/M in,
- * Rp 300/M out with a 25x cached-input discount — priced in micro-IDR (Rp x 1e6) per 1M
+ * Rp 300/M out with a 25x cached-input discount, priced in micro-IDR (Rp x 1e6) per 1M
  * tokens.
  *
- * The chain is walked whenever the preferred model fails, which happens more than you
- * would expect: the catalog advertises models the router cannot serve.
+ * The chain is walked whenever the preferred model fails: the catalog advertises models the
+ * router cannot serve.
  */
 export const MODEL_CHAIN: string[] = [
   "deepseek-v4-1-flash",
@@ -50,19 +47,16 @@ export const MODEL_CHAIN: string[] = [
 ];
 
 /**
- * Price lookup, read from the cached `GET /v1/models` catalog rather than hardcoded.
+ * Price lookup, read from the cached `GET /v1/models` catalog; falls back to a conservative
+ * default when the model is not in the catalog.
  *
- * Prices change — `deepseek-v4-1-flash` was listed at 150,000,000 micro-IDR in one reading
- * and 20,000,000 in another on the same day, which is a 7.5x difference. A hardcoded table
- * is therefore a bug waiting to happen.
+ * Prices change: `deepseek-v4-1-flash` was listed at 150,000,000 micro-IDR in one reading and
+ * 20,000,000 in another on the same day, a 7.5x difference.
  *
- * The unit is `micro_idr_per_1m_tokens`: micro-Rupiah is Rp x 1e6, so
- * IDR per 1M tokens = catalog_value / 1e6. Measured against the live gateway: a call with
- * 38 input and 29,000 output tokens moved the quota by exactly Rp 1, and the Rp 20/M +
- * Rp 50/M reading predicts Rp 1.45 (rounds to 1) while an Rp 150/M + Rp 300/M reading
- * predicts Rp 8.71 (would round to 9). So /1e6 is correct.
- *
- * Falls back to a conservative default when the model is not in the catalog.
+ * The unit is `micro_idr_per_1m_tokens`: micro-Rupiah is Rp x 1e6, so IDR per 1M tokens =
+ * catalog_value / 1e6. Measured against the live gateway: a call with 38 input and 29,000
+ * output tokens moved the quota by Rp 1, and the Rp 20/M + Rp 50/M reading predicts Rp 1.45
+ * (rounds to 1) while an Rp 150/M + Rp 300/M reading predicts Rp 8.71 (would round to 9).
  */
 type Rates = { input: number; output: number; cacheRead: number };
 
@@ -103,7 +97,7 @@ export type CostEstimate = { idr: number; tokensIn: number; tokensOut: number; c
  * Estimate the Rupiah cost of one call.
  *
  * Labelled an estimate in the UI because kenari exposes no per-request cost endpoint, and
- * `/v1/account/quota` reports whole Rupiah — a sub-Rupiah call rounds to zero and cannot be
+ * `/v1/account/quota` reports whole Rupiah: a sub-Rupiah call rounds to zero and cannot be
  * verified.
  */
 export function estimateCost(model: string, usage: Usage): CostEstimate {
@@ -236,9 +230,9 @@ export type CallMeta = { model: string; usage: Usage; cost: CostEstimate; repair
 /**
  * The chain to try: the user's chosen model first (if any), then the defaults, deduped.
  *
- * A user selection is a preference, not a guarantee — if the chosen model is unavailable
- * the request still succeeds on the fallback rather than failing, and `fellBackFrom` tells
- * the caller it happened so the UI can say so.
+ * A user selection is a preference, not a guarantee. If the chosen model is unavailable the
+ * request still succeeds on the fallback, and `fellBackFrom` tells the caller so the UI can
+ * say so.
  */
 function chainFor(role: Role | undefined): string[] {
   const preferred = role ? getRoleModel(role) : null;
@@ -277,7 +271,7 @@ export async function chat(
       };
     } catch (e) {
       failures.push(e instanceof Error ? e.message : String(e));
-      // 402 = no balance for a paid model; move on to the free tier rather than giving up.
+      // 402 = no balance for a paid model; move on to the free tier instead of giving up.
     }
   }
 
@@ -293,13 +287,13 @@ export type Validator<T> = (value: unknown) => { ok: true; value: T } | { ok: fa
 /**
  * Force a tool call, validate the result, and repair once.
  *
- * The repair step is not defensive padding — it was measured. With a forced tool call and
- * `required` fields declared, one run in four still omitted `next_question`. Echoing the
- * missing field names back produced a valid payload on the first retry.
+ * The repair step was measured: with a forced tool call and `required` fields declared, one
+ * run in four still omitted `next_question`. Echoing the missing field names back produced a
+ * valid payload on the first retry.
  *
- * If the second attempt is also invalid, the caller gets a structured failure rather than
- * a half-formed object; the tutor surfaces that as "couldn't produce a hint" instead of
- * silently showing something wrong.
+ * If the second attempt is also invalid, the caller gets a structured failure, not a
+ * half-formed object; the tutor surfaces that as "couldn't produce a hint" instead of showing
+ * something wrong.
  */
 export async function structured<T>(
   messages: ChatMessage[],

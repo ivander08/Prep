@@ -1,22 +1,14 @@
 /**
- * Pre-DSA language fundamentals — Go.
+ * Pre-DSA language fundamentals: Go.
  *
- * One entry per catalogue concept, keyed by slug, supplying only `starter` and `solution`.
- * The tests, the prompt and the concept prose all live in `catalog.ts`.
- *
- * The shape of the code is dictated by the Go harness in `runner.ts`:
- *
- *   - a BARE top-level `func Name(...)`; there is no `Solution` type in Go;
- *   - the harness emits its own `import` block and splices user code in AFTER it, so this
- *     file's code can never contain an `import` statement. A concept that needs the standard
- *     library declares the packages in the catalogue's `goImports`, and the harness emits
- *     them — which is why a starter must USE every package its concept imports (Go rejects an
- *     unused import) and why nothing is imported by default;
- *   - arguments are JSON-decoded into the declared parameter types, so the parameter types
- *     must be the natural ones (`[]int`, `[]string`, `int`, `string`, `bool`);
- *   - the result is compared as `json.Marshal` output, so a nil slice (`null`) is not the same
- *     as an empty slice (`[]`) and every array-returning concept returns a non-nil empty
- *     slice.
+ * One entry per catalogue concept, keyed by slug, supplying only `starter` and `solution`; the
+ * tests, prompt and concept prose live in `catalog.ts`. The Go harness in `runner.ts` dictates
+ * the code shape: a BARE top-level `func Name(...)` (Go has no `Solution` type) with naturally
+ * typed parameters (`[]int`, `[]string`, `int`, `string`, `bool`) that it JSON-decodes into.
+ * No `import` is possible here: the harness emits its own import block and splices user code in
+ * after it, so a concept needing the standard library declares packages in the catalogue's
+ * `goImports`, and a starter must USE each one (Go rejects an unused import). Results compare
+ * as `json.Marshal` output, so a nil slice (`null`) differs from an empty slice (`[]`).
  */
 
 export const GO: Record<string, { starter: string; solution: string }> = {

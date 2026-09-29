@@ -1,28 +1,14 @@
 /**
- * Verifiers — semantic correctness checks for problems with more than one valid answer.
+ * Verifiers: semantic correctness checks for problems with more than one valid answer.
  *
- * THE PROBLEM THIS SOLVES
- * The imported test suites assert exact equality:
- *
+ * The imported suites assert exact equality:
  *     assert candidate(strs = ['a','b','c','d','e']) == [['a'],['b'],['c'],['d'],['e']]
- *
- * For `group-anagrams` that is wrong. LeetCode accepts the groups in any order and the
- * members in any order, so a correct solution that returns
- * `[['e'],['d'],['c'],['b'],['a']]` is marked WRONG. Measured: a correct solution was
- * rejected for exactly this reason.
- *
- * The same applies to `permutations`, `3sum`, `subsets`, `combination-sum`, `two-sum` with
- * multiple index pairs, and every problem whose statement says "in any order".
- *
- * HOW IT IS FIXED
- * The harness emits the raw returned value instead of comparing it, and TypeScript decides.
- * That moves the judgement out of a generated assertion and into testable code, which is
- * the right place for it: these rules can be unit-tested, whereas a string-substituted
- * assertion cannot.
- *
- * SCOPE: only problems where the answer set is genuinely order-free are listed. Everything
- * else keeps strict equality, because strictness is correct for them and loosening it would
- * let real bugs through.
+ * For `group-anagrams` that is wrong: LeetCode accepts the groups in any order and the members in
+ * any order, so a correct solution returning `[['e'],['d'],['c'],['b'],['a']]` is marked WRONG.
+ * Measured: a correct solution was rejected for this reason. Same for `permutations`, `3sum`,
+ * `subsets`, `combination-sum`, `two-sum` with multiple index pairs, and every statement that says
+ * "in any order". The harness emits the raw returned value and TypeScript decides: these rules can
+ * be unit-tested, a string-substituted assertion cannot, and only order-free problems are listed.
  */
 
 export type Verdict = { pass: boolean; reason?: string };
@@ -41,8 +27,8 @@ function asArray(v: unknown): unknown[] | null {
 }
 
 /**
- * A verifier returns pass/fail for one case. `undefined` means "no verifier; fall back to
- * the strict comparison".
+ * A verifier returns pass/fail for one case. `undefined` means no verifier; fall back to the strict
+ * comparison.
  */
 export type Verifier = (got: unknown, expected: unknown) => Verdict;
 
@@ -68,9 +54,9 @@ const ORDER_FREE_FLAT: Verifier = (got, expected) => {
 /**
  * Which problems accept more than one ordering.
  *
- * Keyed by slug. Deliberately a short, explicit list rather than a heuristic: guessing
- * "this looks order-free" is how a false ACCEPT gets introduced, and a false accept is
- * worse than a false reject because it teaches you something untrue.
+ * Keyed by slug. A short explicit list, not a heuristic: guessing "this looks order-free" is how a
+ * false ACCEPT gets introduced, and a false accept is worse than a false reject because it teaches
+ * you something untrue.
  */
 const VERIFIERS: Record<string, Verifier> = {
   "group-anagrams": ORDER_FREE_GROUPS,

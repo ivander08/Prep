@@ -1,10 +1,9 @@
 /**
  * Mastery and model-catalog tests.
  *
- * These seed their own attempt history rather than depending on whatever happens to be in
- * the database. An earlier version asserted against data a different test had left behind,
- * which both coupled the tests and — worse — meant the seed landed in the user's real
- * database. Test data must be created by the test that needs it.
+ * These seed their own attempt history instead of depending on whatever happens to be in the
+ * database. An earlier version asserted against data a different test had left behind, which
+ * coupled the tests and meant the seed landed in the user's real database.
  */
 
 import { beforeAll, describe, expect, test } from "bun:test";
@@ -106,11 +105,11 @@ describe("model catalog", () => {
 
     // The catalog reports `micro_idr_per_1m_tokens`, where micro-Rupiah is Rp x 1e6, so
     // IDR per 1M tokens = catalog / 1e6. Verified against the live gateway: a
-    // 38-in / 29,000-out call moved the quota by exactly Rp 1, which the Rp 20/M reading
+    // 38-in / 29,000-out call moved the quota by Rp 1, which the Rp 20/M reading
     // predicts (Rp 1.45) and an Rp 150/M reading does not (Rp 8.71).
     //
-    // Asserted as a range rather than an exact value because the listed price genuinely
-    // changes — this model was seen at both 150,000,000 and 20,000,000 micro-IDR in one day.
+    // Asserted as a range, not a single value, because the listed price changes: this model was
+    // seen at both 150,000,000 and 20,000,000 micro-IDR in one day.
     const ds = models.find((m) => m.id === "deepseek-v4-1-flash");
     if (ds && ds.inputPerM !== null) {
       expect(ds.inputPerM).toBeGreaterThan(0);

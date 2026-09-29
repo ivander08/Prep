@@ -1,16 +1,13 @@
 /**
- * Spaced repetition — the differentiator.
+ * Spaced repetition, the differentiator. Two decisions, both from the dossier §6:
  *
- * Two design decisions, both from the dossier §6:
+ * 1. Grade from behaviour, not self-report. The usual SRS-for-LeetCode tool asks "how well
+ *    did you remember?" and gets a lie. Here the grade comes from whether the tests passed,
+ *    how many hints were used, and how long it took.
  *
- * 1. GRADE FROM BEHAVIOUR, NOT SELF-REPORT. Every other SRS-for-LeetCode tool asks
- *    "how well did you remember?" and gets a lie. Here the grade is derived from whether
- *    the tests passed, how many hints were used, and how long it took.
- *
- * 2. THE DEFAULT INTERVAL CAP IS A TRAP. ts-fsrs ships `maximum_interval: 36500`
- *    (~100 years). Measured, that produces 3 → 14 → 57 → 196 → 586 → 1559 → 3760 → 8346
- *    days: the scheduler silently stops showing you problems you still need, and it looks
- *    perfectly correct in a demo. Capped at 90 here.
+ * 2. ts-fsrs ships `maximum_interval: 36500` (~100 years). Measured, that produces
+ *    3 → 14 → 57 → 196 → 586 → 1559 → 3760 → 8346 days: the scheduler drops problems you
+ *    still need with no sign of it, and it looks correct in a demo. Capped at 90 here.
  */
 
 import { fsrs, generatorParameters, createEmptyCard, Rating, State } from "ts-fsrs";
@@ -20,15 +17,13 @@ import { db } from "./db.ts";
 /**
  * Interview prep is a sprint measured in weeks, not a lifelong memory project.
  *
- * `maximum_interval: 90`   — measured curve: 4 → 34 → 89 → 91 → 87 → 89 days.
- *                            Note it can land at 91: fuzz is applied after the cap, so
- *                            treat the cap as "≈90 ± a couple of days", not a hard bound.
- * `request_retention: 0.85` — lengthens every interval vs the 0.9 default (measured:
- *                            first Easy goes 17 d instead of 8 d). That is the intended
- *                            trade for a short horizon.
- * `enable_short_term: false` — skip intraday learning steps; a problem is not a flashcard.
- * `enable_fuzz: true`       — spreads due dates across cards so you don't get a 40-problem
- *                            pile-up. Deterministic (seeded), so tests are stable.
+ * `maximum_interval: 90`. Measured curve: 4 → 34 → 89 → 91 → 87 → 89 days. It can land at 91
+ *   because fuzz is applied after the cap, so treat the cap as "≈90 ± a couple of days".
+ * `request_retention: 0.85` lengthens every interval against the 0.9 default (measured: first
+ *   Easy goes 17 d instead of 8 d). That is the intended trade for a short horizon.
+ * `enable_short_term: false` skips intraday learning steps; a problem is not a flashcard.
+ * `enable_fuzz: true` spreads due dates across cards so you don't get a 40-problem pile-up.
+ *   Deterministic (seeded), so tests are stable.
  */
 export const SCHEDULER = fsrs(
   generatorParameters({
@@ -146,7 +141,7 @@ export function reviewCard(qid: number, grade: Grade, now = new Date()): { due: 
  *
  * `reviewCard` is hardcoded to the `cards` table keyed by `qid`; a concept lives in `items`
  * and is keyed by `item_id`, so it needs its own path. Same scheduler, same behavioural
- * grade — only the table differs.
+ * grade. Only the table differs.
  *
  * `item_cards` has no `elapsed_days` or `scheduled_days` columns, so only the columns it
  * does have are persisted. ts-fsrs still needs those two fields on the in-memory Card to
@@ -221,8 +216,8 @@ export function reviewItem(itemId: number, grade: Grade, now = new Date()): { du
  *
  * The grade is the ATTEMPT's grade, not a new judgement: `gradeAttempt` already derives it
  * from whether the tests passed, how many hints were used, and how long it took. Passing it
- * through is what keeps the no-self-report rule intact at pattern granularity — the student
- * never rates the pattern, they just re-solve a problem and the code decides.
+ * through keeps the no-self-report rule intact at pattern granularity. The student never
+ * rates the pattern; they re-solve a problem and the code decides.
  *
  * `items` is upserted first because `item_cards.item_id` references `items(id)` with foreign
  * keys on, the same ordering `recordConcept` uses.
@@ -238,9 +233,9 @@ export function reviewPattern(
 /**
  * Schedule a design round from its rubric grade.
  *
- * Same path as a pattern card — `items` + `item_cards` with `kind = 'design'` — so a design
- * round comes back for review on the same FSRS curve as everything else rather than being a
- * one-shot exercise.
+ * Same path as a pattern card (`items` + `item_cards` with `kind = 'design'`), so a design
+ * round comes back for review on the same FSRS curve as everything else. A design round is
+ * not a one-shot exercise.
  */
 export function reviewDesign(
   slug: string,
@@ -257,21 +252,14 @@ export type DueTrack = "dsa" | "pattern" | "concept" | "component" | "design" | 
 /**
  * Every item due for review, across every track, oldest-due first.
  *
- * `cards` (DSA) and `item_cards` (everything else) are deliberately separate tables, so this
- * is a UNION of the two rather than a join. The non-DSA half is a single query over
- * `item_cards JOIN items` with no `kind` filter — that is the whole point: the readers this
- * replaced each pinned one kind, so three of the six kinds had no reader at all.
- *
- * `ref` is the item's identity within its track, and it is always the value that OPENS the
- * item: the problem slug for DSA, the catalogue slug for the rest. For a `pattern` row it is
- * the pattern NAME, which is what `items.ref` holds.
- *
- * `problemSlug` carries the extra thing a pattern review needs. The subquery picks the
- * problem with the MOST RECENT passing attempt, so a pattern review re-solves something
- * freshest in memory. It is a separate nullable column rather than folded into `ref`
- * because the two cases must stay distinguishable: a pattern with no passing attempt has
- * nothing to re-solve, and the client opens the Roadmap for it instead of a problem.
- * Folding both into `ref` would make the two indistinguishable at the click site.
+ * `cards` (DSA) and `item_cards` (everything else) are separate tables, so this is a UNION,
+ * not a join. The non-DSA half is one query over `item_cards JOIN items` with no `kind`
+ * filter; the readers this replaced each pinned one kind, so three of the six kinds had no
+ * reader at all.
+ * `ref` is the item's identity within its track, and always the value that OPENS the item:
+ * the problem slug for DSA, the catalogue slug for the rest, the pattern NAME for a
+ * `pattern` row (which is what `items.ref` holds). `problemSlug` is the one extra column a
+ * pattern review needs, described below.
  */
 export type DueTrackItem = {
   kind: DueTrack;
@@ -282,14 +270,19 @@ export type DueTrackItem = {
   reps: number;
   lapses: number;
   /**
-   * For a `pattern` row, the problem to re-solve — the one with the most recent passing
-   * attempt. Null for every other kind, and null for a pattern nothing has passed yet.
+   * For a `pattern` row, the problem to re-solve: the one with the most recent passing
+   * attempt, so a pattern review re-solves something freshest in memory. Null for every
+   * other kind, and null for a pattern nothing has passed yet.
+   *
+   * A separate nullable column because the two cases must stay distinguishable at the click
+   * site: a pattern with no passing attempt has nothing to re-solve, and the client opens
+   * the Roadmap for it. Folding both into `ref` would make them indistinguishable.
    */
   problemSlug: string | null;
 };
 
 export function dueItems(limit = 40): DueTrackItem[] {
-  // The timestamp is bound TWICE — once per branch of the UNION — then the limit. Three
+  // The timestamp is bound TWICE, once per branch of the UNION, then the limit. Three
   // placeholders, three arguments, in that order.
   const now = new Date().toISOString();
   return db
@@ -314,9 +307,9 @@ export function dueItems(limit = 40): DueTrackItem[] {
 /**
  * Schedule a prose-track item.
  *
- * A third sibling of `reviewPattern` and `reviewDesign` rather than a call to `ensureKindItem`
- * from outside: that helper is module-private, and these three wrappers exist precisely so the
- * `items` row is always created immediately before the `item_cards` row it hangs off.
+ * A third sibling of `reviewPattern` and `reviewDesign`. `ensureKindItem` is module-private,
+ * so an outside caller cannot reach it, and these three wrappers exist so the `items` row is
+ * always created immediately before the `item_cards` row it hangs off.
  */
 export function reviewProse(
   kind: "behavioral" | "stack",
@@ -351,10 +344,10 @@ function ensureKindItem(kind: string, ref: string, title: string, bodyMd: string
  * Progress through a list.
  *
  * `total` counts EVERY problem in the list, including LeetCode Premium-only ones, because
- * that is the list's real size — Blind 75 has 75 problems, not 69. Reporting only the free
+ * that is the list's real size: Blind 75 has 75 problems, not 69. Reporting only the free
  * ones made a finished list look unfinished and hid why.
  *
- * `locked` and `free` are returned so the UI can say "6 premium" rather than quietly
+ * `locked` and `free` are returned so the UI can say "6 premium" instead of quietly
  * shrinking the denominator. `solved` counts distinct solved problems.
  */
 export function listProgress(listName: string): {

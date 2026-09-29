@@ -1,15 +1,14 @@
 /**
  * Fundamentals fixtures.
  *
- * The load-bearing test is "every exemplar passes its own tests". That is the only reason
- * shipping 155 generated exercises is defensible: the executor is a deterministic oracle, so
- * a wrong exemplar fails here rather than being taught to a student as the answer.
+ * The test that matters is "every exemplar passes its own tests": the executor is a
+ * deterministic oracle, so a wrong exemplar fails here, not in front of a student who was
+ * taught it as the answer. That is what makes shipping 155 generated exercises defensible.
+ * The other two matter from the other direction: a starter that already passes teaches
+ * nothing, and one that does not compile teaches the wrong thing.
  *
- * The other two matter for the same reason from the other direction: a starter that already
- * passes teaches nothing, and a starter that does not compile teaches the wrong thing.
- *
- * A language whose runtime is not installed is SKIPPED, not failed, so the suite still runs
- * on a machine without the full toolchain — matching runner.test.ts.
+ * A language whose runtime is not installed is skipped, not failed, so the suite still runs on
+ * a machine without the full toolchain, matching runner.test.ts.
  */
 
 import { beforeAll, describe, expect, test } from "bun:test";

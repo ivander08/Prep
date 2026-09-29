@@ -1,28 +1,14 @@
 /**
- * Go — executable system-design components.
- *
- * `starter` compiles and FAILS its tests; `solution` must pass every case in `catalog.ts`.
- * Both are enforced by `components.test.ts` through the real executor.
- *
- * The shape is dictated by the Go harness in `runner.ts`:
- *
- *   - a BARE top-level `func Name(...)`; there is no `Solution` type in Go;
- *   - the harness emits its own `import` block and splices user code in AFTER it, so this
- *     code can never contain an `import` statement. A component that needs the standard
- *     library declares the packages in the catalogue's `goImports`, and the harness emits
- *     them — which is why a starter must USE every package its component imports (Go rejects
- *     an unused import);
- *   - arguments are JSON-decoded into the declared parameter types, so the parameter types
- *     must be the natural ones (`int`, `[]string`);
- *   - the result is compared as `json.Marshal` output, so a nil slice (`null`) is not the
- *     same as an empty slice (`[]`) and every array-returning component returns a non-nil
- *     empty slice.
- *
- * `snowflake-id` uses `int64`: `(t << 22)` exceeds 2^31 for any plausible clock. The return is
- * a decimal `[]string` for the same reason.
- *
- * THE HASH IS PART OF THE CONTRACT for `consistent-hash` and `bloom-filter`: both are
- * unsatisfiable without agreeing on it, so it appears identically in all five languages.
+ * Go: executable system-design components. `starter` compiles and FAILS its tests; `solution` must
+ * pass every case in `catalog.ts`; `components.test.ts` enforces both via the executor. The Go
+ * harness in `runner.ts` fixes the shape: a bare top-level `func Name(...)` (Go has no `Solution`
+ * type); no `import` statement, since the harness emits its own block and splices user code in
+ * after it, so a component declares packages in the catalogue's `goImports`, and a starter must
+ * USE each one (Go rejects an unused import). Arguments are JSON-decoded into naturally typed
+ * parameters (`int`, `[]string`), and the result is compared as `json.Marshal` output, so a nil
+ * slice (`null`) differs from an empty slice (`[]`); array-returning components return a non-nil
+ * empty slice. `snowflake-id` uses `int64` and returns decimal `[]string` because `(t << 22)`
+ * exceeds 2^31; `consistent-hash` and `bloom-filter` share one hash contract, all five languages.
  */
 
 const HASH_DOC = `// hash(s) = fold over characters: h = (h*31 + int(c)) % 1000003`;

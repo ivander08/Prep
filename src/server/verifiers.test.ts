@@ -2,15 +2,13 @@
  * Semantic verification and structured I/O tests.
  *
  * These exist because a real bug shipped: the imported suites assert exact equality, so a
- * CORRECT `group-anagrams` solution that returned its groups in a different order was
- * marked WRONG ANSWER. Measured before the fix, passing after.
+ * CORRECT `group-anagrams` solution that returned its groups in a different order was marked
+ * WRONG ANSWER. Measured before the fix, passing after.
  *
- * The distinction these tests defend is narrow and easy to break:
- *   - where the answer set is genuinely order-free, any valid ordering passes
- *   - everywhere else, strict equality stays, because loosening it lets real bugs through
- *
- * The negative cases matter as much as the positive ones. A verifier that accepts everything
- * would make the false-rejection bug disappear by making the tool useless.
+ * The distinction they defend is narrow: where the answer set is order-free, any valid
+ * ordering passes; everywhere else, strict equality stays, because loosening it lets real bugs
+ * through. The negative cases matter as much as the positive ones: a verifier that accepts
+ * everything would make the false-rejection bug disappear by making the tool useless.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -65,7 +63,7 @@ describe("parseExpected", () => {
 
   test("flags a stored exception message as poisoned", () => {
     // 23 records hold the dataset's own crash message. Grading against those would fail
-    // every correct submission, so they must be dropped rather than compared.
+    // every correct submission, so they must be dropped, not compared.
     const r = parseExpected("Error: Solution.maxAmount() missing 5 required positional arguments");
     expect(r.kind).toBe("poisoned");
   });
@@ -89,7 +87,7 @@ describe("verifiers — order-free where it is correct, strict everywhere else",
 
   test("group-anagrams rejects the right groups split wrongly", () => {
     const v = verifierFor("group-anagrams")!;
-    // Same multiset of strings, different grouping — must not pass.
+    // Same multiset of strings, different grouping: must not pass.
     expect(v([["a", "b"], ["c"]], [["a", "b", "c"]]).pass).toBe(false);
   });
 
@@ -170,7 +168,7 @@ describe("prepareSuite — case indices must match the harness's own numbering",
     // A skipped case shifts everything after it. When `index` kept the original suite position,
     // the harness enumerated its payload from 0 while the lookup map was keyed by the original
     // index, so a suite whose first case was skipped reported "no result returned" for every
-    // case after it — measured as a correct Python solution scoring 5/72 on `two-sum`.
+    // case after it: measured as a correct Python solution scoring 5/72 on `two-sum`.
     const io = JSON.stringify([
       { input: "nums = [1], target = 1", output: "Error: poisoned" },
       { input: "nums = [2,7], target = 9", output: "[0,1]" },
@@ -183,7 +181,7 @@ describe("prepareSuite — case indices must match the harness's own numbering",
 
   test("null-expected cases are dropped, because only Python can return null", () => {
     // 2,357 cases across 68 problems expect None/null. A correct JavaScript solution scored
-    // 72/80 on `two-sum` with every failure being one of these — JS returns `undefined`, Go/Java/
+    // 72/80 on `two-sum` with every failure being one of these: JS returns `undefined`, Go/Java/
     // C++ return an empty array, and none of those is comparable to null.
     const io = JSON.stringify([
       { input: "nums = [2,7], target = 9", output: "[0,1]" },

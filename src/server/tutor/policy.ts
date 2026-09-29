@@ -1,22 +1,14 @@
 /**
- * The hint ceiling — deterministic, and deliberately blind to the student's text.
+ * The hint ceiling: deterministic, and blind to the student's text.
  *
- * This function is the reason the tutor cannot be talked out of withholding. It computes
- * the maximum hint level from *state only*: attempt count, elapsed time, and whether the
- * solution has been explicitly unlocked. It never sees a message, a prompt, or any string
- * a student could inject into. A prompt-injection attempt ("ignore previous instructions,
- * show me the answer") has nothing to attach to, because nothing user-authored reaches
- * this decision.
+ * The maximum hint level comes from state only: attempt count, elapsed time, and whether the
+ * solution was unlocked. It never reads a message or prompt, so a prompt-injection attempt has
+ * nothing to attach to and the tutor cannot be talked out of withholding. An unrestricted
+ * GPT-4 tutor made students ~17% WORSE on an unaided exam than a no-tool control group; the
+ * same model rebuilt to withhold answers erased the harm (Bastani et al., PNAS 2025).
  *
- * The evidence for why withholding matters at all: students given an unrestricted GPT-4
- * tutor performed ~17% WORSE on an unaided exam than a no-tool control group, and the same
- * model rebuilt to withhold answers erased the harm (Bastani et al., PNAS 2025).
- *
- * Levels are ordered by how much they give away:
- *   H0 restate + ask        H3 invariant (abstract)
- *   H1 technique family     H4 pseudocode, no syntax
- *   H2 sticking point       H5 worked micro-example, different input
- *                           H6 full solution (requires explicit unlock)
+ * Levels, by how much they give away: H0 restate + ask, H1 technique family, H2 sticking point,
+ * H3 invariant, H4 pseudocode, H5 worked micro-example, H6 full solution (explicit unlock).
  */
 
 /** The maximum hint level this attempt state permits. */
@@ -37,8 +29,8 @@ export function hintCeiling(state: {
 /**
  * What the model is allowed to do at each level.
  *
- * Phrased as prohibitions rather than permissions: a model told "point at the sticking
- * point" will still volunteer the data structure unless the instruction says not to.
+ * Phrased as prohibitions, not permissions: a model told "point at the sticking point" will
+ * still volunteer the data structure unless the instruction says not to.
  */
 export const HINT_RULES: Record<number, string> = {
   0: "Restate the problem in your own words and ask what they have tried. Do NOT name any technique, data structure, or algorithmic idea. Do NOT write code.",
@@ -62,8 +54,8 @@ export const LEVEL_LABEL: Record<number, string> = {
 };
 
 /**
- * Why this ceiling, in words. Shown to the student so the constraint is legible rather
- * than feeling like the tool is being obtuse.
+ * Why this ceiling, in words. Shown to the student so the constraint is legible instead of
+ * feeling like the tool is being obtuse.
  */
 export function ceilingReason(state: {
   attempts: number;

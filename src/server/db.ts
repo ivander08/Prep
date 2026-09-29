@@ -20,9 +20,9 @@ db.exec("PRAGMA foreign_keys = ON;");
 db.exec("PRAGMA busy_timeout = 5000;");
 
 /**
- * Apply every migration in filename order, once. Tracked in `meta.schema_version`
- * so re-running is a no-op. Migrations are plain SQL and must be idempotent
- * (CREATE TABLE IF NOT EXISTS) — this runner deliberately does not do rollbacks.
+ * Apply every migration in filename order, once. Tracked in `meta.schema_version` so re-running
+ * is a no-op. Migrations are plain SQL and must be idempotent (CREATE TABLE IF NOT EXISTS); this
+ * runner does not do rollbacks.
  */
 export function migrate(): void {
   db.exec("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);");
@@ -68,11 +68,11 @@ export function setMeta(key: string, value: string): void {
 
 if (import.meta.main) {
   migrate();
-  // `AS name`, not `AS table` — `table` is a reserved word in SQLite and the alias made this
-  // query a syntax error, so `bun run src/server/db.ts` crashed AFTER migrating. That is the
-  // worst possible order: the migrations applied, the command reported failure, and the only
-  // way to know the schema was current was to open the file and look. This is the command the
-  // docs point at for applying migrations to a copy, so it has to exit clean.
+  // `AS name`, not `AS table`: `table` is a reserved word in SQLite, and the alias made this query
+  // a syntax error, so `bun run src/server/db.ts` crashed after migrating. That order is the worst
+  // one: the migrations applied, the command reported failure, and the only way to know the schema
+  // was current was to open the file and look. This is the command the docs point at for applying
+  // migrations to a copy, so it has to exit clean.
   const counts = db
     .query<{ name: string; n: number }, []>(
       `SELECT 'problems' AS name, COUNT(*) AS n FROM problems

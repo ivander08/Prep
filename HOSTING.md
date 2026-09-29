@@ -25,11 +25,11 @@ verified by reading each cited file:line during this work, and by fetching LeetC
 The app fetches problem statements, hints, examples and starter snippets from LeetCode's public
 GraphQL endpoint and caches them in the local `problems` table.
 
-- The endpoint: `src/server/leetcode.ts:15` — `const ENDPOINT = "https://leetcode.com/graphql/";`.
-- The lazy fetch: `src/server/index.ts:133` — `const detail = await fetchProblem(slug);`, guarded
-  by `src/server/index.ts:131` (`if (row.fetched_at === null && statementSource !== "manual")`)
+- The endpoint: `src/server/leetcode.ts:14` — `const ENDPOINT = "https://leetcode.com/graphql/";`.
+- The lazy fetch: `src/server/index.ts:143` — `const detail = await fetchProblem(slug);`, guarded
+  by `src/server/index.ts:141` (`if (row.fetched_at === null && statementSource !== "manual")`)
   so a problem is fetched once and never again. The same block writes `statement_md`, `hints`,
-  `snippets`, `meta_json` and `examples` back into `problems` (`src/server/index.ts:142-149`).
+  `snippets`, `meta_json` and `examples` back into `problems` (`src/server/index.ts:152-159`).
 - The provenance column: `src/server/migrations/009_premium_statement.sql:11` —
   `ALTER TABLE problems ADD COLUMN statement_source TEXT;`, documented at lines 8-10 as
   `'leetcode'` for a fetch and `'manual'` for something the user pasted.
@@ -57,7 +57,7 @@ are not a reason to withhold hosting:
   `src/server/migrations/006_full_tests.sql` (the licence is stated at line 7, and `source`
   defaults to `'newfacade/LeetCodeDataset'` at line 26).
 - The curated list data comes from `neetcode-gh/leetcode` (MIT) and
-  `ascherj/neetcode-250-guide`, described at `src/server/ingest.ts:5-8`.
+  `ascherj/neetcode-250-guide`, described at `src/server/ingest.ts:4-7`.
 
 The problem is specifically the statement, hint and example text, which is LeetCode's own prose
 and is not licensed for redistribution at all. A hosted app that omitted those rows but kept the
@@ -74,12 +74,12 @@ no `chroot`, no uid change, no `rlimit`, no cgroup and no network restriction. V
 grepping `src/server/` for `ulimit|setrlimit|cgroup|chroot|seccomp|bwrap|firejail|docker`; the
 grep returns **nothing**. Nothing in the server constrains what a submitted program may do.
 
-- The spawn: `src/server/runner.ts:431` —
+- The spawn: `src/server/runner.ts:419` —
   `const proc = Bun.spawn(cmd, { stdout: "pipe", stderr: "pipe", cwd: dir });`. `cwd` is a fresh
-  temp directory (`src/server/runner.ts:414-415`), but **no `env` is passed**, so the child
+  temp directory (`src/server/runner.ts:402-403`), but **no `env` is passed**, so the child
   inherits the server's environment — including `KENARI_API_KEY` (read at
-  `src/server/tutor/client.ts:33` and `src/server/index.ts:855`).
-- The only enforcement: `src/server/runner.ts:432` —
+  `src/server/tutor/client.ts:30` and `src/server/index.ts:955`).
+- The only enforcement: `src/server/runner.ts:420` —
   `const killer = setTimeout(() => proc.kill(), timeout);`. A wall-clock timer that kills the
   **direct child** and not its grandchildren. A program that forks a background process and
   exits leaves that process running past the timeout.
@@ -108,7 +108,7 @@ person submitting code is the person who owns the machine.
 There is no user concept anywhere. Verified by grepping `src/server/index.ts` for auth
 middleware — `app.use(`, `session`, `cookie`, `Authorization` — which returns **nothing** for
 `app.use(` and `cookie`; the only `Authorization` occurrences in `src/server/` are outbound
-(`src/server/tutor/client.ts:177` when calling the model, and `src/server/patterns.ts:76` when
+(`src/server/tutor/client.ts:171` when calling the model, and `src/server/patterns.ts:70` when
 calling GitHub), never inbound. There is no request authentication of any kind.
 
 Nor is there a user table. Grepping `src/server/migrations/` for `CREATE TABLE` matching
@@ -135,17 +135,15 @@ None of them has a `user_id` column, and no query filters by one.
 `CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);`) holding the API
 key in plaintext under the key `kenari_api_key` — written by `setMeta` at
 `src/server/db.ts:62-65`, read by `getMeta` at `src/server/db.ts:57-60`, and set over HTTP by
-`POST /api/settings/key` at `src/server/index.ts:988-995` (`setMeta("kenari_api_key", key)` at
-line 993), which stores the raw key with no encryption. One key serves every user of the
+`POST /api/settings/key` at `src/server/index.ts:962-969` (`setMeta("kenari_api_key", key)` at
+line 967), which stores the raw key with no encryption. One key serves every user of the
 process.
 
-`POST /api/reset` deletes from six of those tables with no scoping
-(`src/server/index.ts:1036`). The handler loops over `["tutor_turns", "attempts", "cards",
-"item_cards", "pattern_mastery", "milestones"]` (`src/server/index.ts:1044`) and deletes each.
-Under a single-user design that is correct. Hosted, one user's reset destroys everyone's
-progress — and the two tables the loop does *not* name (`design_sessions`, `track_sessions`) are
-not spared, they are simply missed, which is its own bug once more than one person writes to
-them.
+`POST /api/reset` deletes from eight of those tables with no scoping
+(`src/server/index.ts:1013`). The handler loops over `["tutor_turns", "attempts", "cards",
+"item_cards", "pattern_mastery", "milestones", "design_sessions", "track_sessions"]`
+(`src/server/index.ts:1021`) and deletes each. Under a single-user design that is correct.
+Hosted, one user's reset destroys everyone's progress.
 
 Multi-tenancy therefore means adding a `user_id` to those eight tables, threading it through
 every read and write path in `src/server/`, and giving each user their own API key — or routing
@@ -198,9 +196,9 @@ meet. It is named here as the scope of the work, **not** as a recommendation to 
 - a non-root uid inside the container;
 - `rlimit` on memory, CPU and process count, so a submission cannot exhaust the host;
 - a kill of the whole process group rather than the direct child, replacing the current timer at
-  `src/server/runner.ts:432`;
+  `src/server/runner.ts:420`;
 - the API key removed from the child's environment, so `Bun.spawn` at
-  `src/server/runner.ts:431` passes an explicit `env` rather than inheriting the server's.
+  `src/server/runner.ts:419` passes an explicit `env` rather than inheriting the server's.
 
 Each of these is a real piece of engineering. Together they are a project in their own right,
 and they still leave Blocker 1 unresolved, because a sandbox fixes the executor and not the

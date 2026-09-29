@@ -1,19 +1,13 @@
 /**
  * Concept exemplar verifier.
- *
  *   bun run src/server/concepts/verify.ts [lang]
- *
- * Runs every exemplar for one language (or all five) against its own tests, through the
- * real executor. This is the check that makes AI-authored content trustworthy: a wrong
- * exemplar fails immediately, in the language it is wrong in, rather than shipping as a
- * "solution" a student is supposed to learn from.
- *
- * It also checks the STARTER fails — a starter that already passes teaches nothing, and that
- * is easy to produce by accident when the scaffold is faded too gently.
- *
- * Deliberately standalone: it imports the language files directly rather than going through
- * `concepts.ts`, so a language whose file is still being written does not block verifying the
- * others.
+ * Runs every exemplar for one language (or all five) against its own tests, through the real
+ * executor. A wrong exemplar fails immediately, in the language it is wrong in, instead of
+ * shipping as a "solution" a student is supposed to learn from. It also checks the starter
+ * fails: a starter that already passes teaches nothing, and that is easy to produce by accident
+ * when the scaffold is faded too gently.
+ * Standalone on purpose: it imports the language files directly, not through `concepts.ts`, so
+ * a language whose file is still being written does not block verifying the others.
  */
 
 import { CONCEPTS, fnNameFor } from "./catalog.ts";

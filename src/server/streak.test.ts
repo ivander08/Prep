@@ -2,7 +2,7 @@
  * Streak arithmetic tests.
  *
  * `streakFrom` is the pure part of the streak: a day walk over `YYYY-MM-DD` strings with no
- * database. It is tested directly because the arithmetic is what can be wrong — the SQL is a
+ * database. It is tested directly because the arithmetic is what can be wrong. The SQL is a
  * two-line union, and the local-vs-UTC day bucket is a property of `date(x,'localtime')` that
  * the end-to-end check covers instead.
  *

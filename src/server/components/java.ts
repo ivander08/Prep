@@ -1,23 +1,14 @@
 /**
- * Java — executable system-design components.
- *
- * `starter` compiles and FAILS its tests; `solution` must pass every case in `catalog.ts`.
- * Both are enforced by `components.test.ts` through the real executor.
- *
- * Binding rule: `class Solution` — deliberately NOT public, because the harness writes the
- * file as `Main.java` and only `Main` may be public there. Methods are public and non-static,
- * named exactly as the catalogue's `name`, so the harness can find them by reflection.
- *
- * Signatures are constrained by the harness's argument coercion, which handles `int`, `long`,
- * `double`, `boolean`, `char`, `String`, `int[]`, `double[]`, `String[]`, `boolean[]` — there
- * is no `int[][]` case. Every component here therefore takes `int` and `String[]` and returns
- * `int[]` or `String[]`.
- *
- * `snowflake-id` uses `long` internally: `(t << 22)` exceeds 2^31 for any plausible clock, and
- * an `int` shift would silently wrap. The return is a decimal `String[]` for the same reason.
- *
- * THE HASH IS PART OF THE CONTRACT for `consistent-hash` and `bloom-filter`: both are
- * unsatisfiable without agreeing on it, so it appears identically in all five languages.
+ * Java: executable system-design components. `starter` compiles and FAILS its tests;
+ * `solution` passes every case in `catalog.ts`, enforced by `components.test.ts`.
+ * `class Solution` is NOT public: the harness writes `Main.java`, where only `Main` may be
+ * public. Methods are public, non-static, and named as the catalogue's `name` so reflection
+ * finds them. Coercion handles `int`, `long`, `double`, `boolean`, `char`, `String`, `int[]`,
+ * `double[]`, `String[]`, `boolean[]` and no `int[][]`, so components take `int` and `String[]`
+ * and return `int[]` or `String[]`.
+ * `snowflake-id` uses `long`: `(t << 22)` exceeds 2^31 for any plausible clock, and an `int`
+ * shift would wrap with no error. `consistent-hash` and `bloom-filter` are unsatisfiable unless
+ * all five languages agree on the same hash, so it is part of the contract.
  */
 
 const HASH_DOC = `    // hash(s) = fold over characters: h = (h * 31 + c) % 1000003`;

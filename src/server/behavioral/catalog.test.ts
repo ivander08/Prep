@@ -1,16 +1,14 @@
 /**
  * Behavioral prompt catalogue tests.
  *
- * The checks that matter are the shape of the list endpoint and the completeness of the
- * answer key. `listBehavioralPrompts` is what the client receives, so a field that leaks
- * through it hands the candidate the rubric they are being graded against; and a prompt with
- * an empty `lookFor` gives the grader nothing to score, which surfaces as a graded answer
- * with no evidence rather than as an error. Both are invisible until someone answers a
- * prompt, which is why they are asserted here rather than trusted.
- *
- * The per-group count is asserted because the track is meant to be balanced across the six
- * axes: three prompts per group is what stops a candidate drilling ownership for a week
- * without ever being asked about ambiguity.
+ * The checks that matter are the shape of the list endpoint and the completeness of the answer
+ * key. `listBehavioralPrompts` is what the client receives, so a field that leaks through it
+ * hands the candidate the rubric they are graded against, and a prompt with an empty `lookFor`
+ * gives the grader nothing to score, which surfaces as a graded answer with no evidence rather
+ * than as an error. Both are invisible until someone answers a prompt, so they are asserted here.
+ * The per-group count is asserted because the track is balanced across the six axes: three
+ * prompts per group stops a candidate drilling ownership for a week without being asked about
+ * ambiguity.
  */
 
 import { describe, expect, test } from "bun:test";

@@ -2,14 +2,13 @@
  * LeetCode GraphQL client.
  *
  * Personal, single-user, local tool: statements are fetched on demand and cached in the
- * local SQLite file. Nothing is redistributed. See the dossier §10 — the local-only
- * decision is what keeps this on the right side of LeetCode's ToS, whose robots.txt
- * disallows /graphql.
+ * local SQLite file. Nothing is redistributed. See the dossier §10: the local-only decision
+ * keeps this on the right side of LeetCode's ToS, whose robots.txt disallows /graphql.
  *
- * Two things about this API that are not obvious and were found by running it:
- *   1. `__type` introspection is DISABLED ("Query unavailable"). Schema changes must be
- *      discovered by trying fields, not by introspecting.
- *   2. `companyTags` returns null unauthenticated — it is premium-gated.
+ * Two non-obvious facts, found by running the API:
+ *   1. `__type` introspection is DISABLED ("Query unavailable"). Discover schema changes by
+ *      trying fields.
+ *   2. `companyTags` returns null unauthenticated: it is premium-gated.
  */
 
 const ENDPOINT = "https://leetcode.com/graphql/";
@@ -53,8 +52,8 @@ export async function gql<T>(query: string, variables: Record<string, unknown> =
     throw new LeetCodeError("response was not JSON", res.status, text.slice(0, 500));
   }
 
-  // LeetCode returns 200 with an `errors` array for bad queries. Surface it as a throw —
-  // a silently-empty problem list is much worse than a loud failure.
+  // LeetCode returns 200 with an `errors` array for bad queries. Throw instead: a problem
+  // list that comes back empty and silent is much worse than a loud failure.
   if (json.errors?.length) {
     throw new LeetCodeError(json.errors.map((e) => e.message).join("; "), res.status, text.slice(0, 500));
   }
@@ -172,9 +171,9 @@ export async function fetchProblem(titleSlug: string): Promise<ProblemDetail> {
 // ---------------------------------------------------------------------------
 
 /**
- * NOTE: the field is `planSubGroups` — capital G. `planGroups` and `planSubgroups` both
- * error. And the SQL plan's slug is `top-sql-50`; `sql-50` returns null SILENTLY rather
- * than erroring, so a wrong slug looks like an empty plan.
+ * NOTE: the field is `planSubGroups`, capital G. `planGroups` and `planSubgroups` both
+ * error. The SQL plan's slug is `top-sql-50`; `sql-50` returns null with no error, so a
+ * wrong slug looks like an empty plan.
  */
 const STUDY_PLAN_QUERY = `
 query studyPlanV2Detail($planSlug: String!) {
@@ -215,15 +214,15 @@ export async function fetchStudyPlan(
  * to be clean and small: measured 1,442 chars of HTML → 789 chars of markdown (~197
  * tokens) for Two Sum, a 55% reduction.
  *
- * Hand-rolled rather than pulling a dependency — the tag set is tiny and fixed.
+ * Hand-rolled: the tag set is tiny and fixed, so a dependency is not worth it.
  */
 /**
  * Convert an official hint to markdown.
  *
- * LeetCode returns hints as raw HTML fragments — `<code>x</code>`, `<strong>`, entities.
+ * LeetCode returns hints as raw HTML fragments: `<code>x</code>`, `<strong>`, entities.
  * They were being stored and rendered verbatim, so a hint read "say <code>x</code>" instead
- * of "say `x`". Same converter as statements; kept as a named export so the cached hints can
- * be re-converted without re-fetching.
+ * of "say `x`". Same converter as statements; a named export so the cached hints can be
+ * re-converted without re-fetching.
  */
 export function hintToMarkdown(html: string): string {
   return htmlToMarkdown(html);
@@ -241,11 +240,10 @@ export function htmlToMarkdown(input: string): string {
     return `\n\`\`\`\n${decodeEntities(inner).trim()}\n\`\`\`\n`;
   });
 
-  // LeetCode nests emphasis: `<strong><em>exactly</em> one solution</strong>`. Converting
-  // both levels yields `***exactly* one solution**`, which is valid CommonMark but beyond
-  // what a lightweight renderer should have to parse for a statement view. Collapse the
-  // nesting instead — inside a bold span, the italic is visually redundant anyway.
-  // Note the `(.*?)` before `</strong>`: text continues after the inner `</em>`.
+  // LeetCode nests emphasis: `<strong><em>one</em> solution</strong>`. Converting both levels
+  // yields `***one* solution**`, valid CommonMark but more than a lightweight renderer should
+  // parse for a statement view. Collapse the nesting: inside a bold span the italic is visually
+  // redundant anyway. The `(.*?)` before `</strong>` catches the text after the inner `</em>`.
   s = s.replace(
     /<(strong|b)(\s[^>]*)?>\s*<(em|i)(\s[^>]*)?>(.*?)<\/\3>(.*?)<\/\1>/gs,
     "<$1>$5$6</$1>",
@@ -258,9 +256,9 @@ export function htmlToMarkdown(input: string): string {
   s = s.replace(/<\/p>/g, "\n\n");
   s = s.replace(/<br\s*\/?>/g, "\n");
   s = s.replace(/<\/h[1-6]>/g, "\n\n");
-  // Emphasis tags carry attributes in LeetCode's HTML — `<strong class="example">` is the
-  // common one. Matching only the bare form left a stray `**`: the opening tag was
-  // stripped as an unknown tag while the closing tag became emphasis markers.
+  // Emphasis tags carry attributes in LeetCode's HTML, `<strong class="example">` being the
+  // common one. Matching only the bare form left a stray `**`: the opening tag was stripped
+  // as an unknown tag while the closing tag became emphasis markers.
   s = s.replace(/<(strong|b)(\s[^>]*)?>/g, "**").replace(/<\/(strong|b)>/g, "**");
   s = s.replace(/<(em|i)(\s[^>]*)?>/g, "*").replace(/<\/(em|i)>/g, "*");
   s = s.replace(/<code[^>]*>/g, "`").replace(/<\/code>/g, "`");

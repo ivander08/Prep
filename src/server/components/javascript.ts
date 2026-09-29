@@ -1,13 +1,13 @@
 /**
- * JavaScript — executable system-design components.
+ * JavaScript: executable system-design components.
  *
- * `starter` compiles and FAILS its tests; `solution` must pass every case in `catalog.ts`.
+ * `starter` compiles but fails its tests; `solution` must pass every case in `catalog.ts`.
  * Both are enforced by `components.test.ts` through the real executor.
  *
- * The harness calls a BARE top-level function named by `fnNameFor("javascript", name)` —
+ * The harness calls a bare top-level function named by `fnNameFor("javascript", name)`, the
  * camelCase of the catalogue's canonical name. There is no `Solution` class in JavaScript.
  *
- * THE HASH IS PART OF THE CONTRACT for `consistent-hash` and `bloom-filter`: both are
+ * The hash is part of the contract for `consistent-hash` and `bloom-filter`: both are
  * unsatisfiable without agreeing on it, so it appears identically in all five languages.
  */
 

@@ -1,18 +1,14 @@
 /**
  * C++17 exemplars and faded scaffolds for the language-fundamentals track.
- *
- * Keyed by catalogue slug; the tests themselves live in `catalog.ts` so no language can
- * disagree about what a concept does.
- *
- * The harness emits `#include <bits/stdc++.h>` and `using namespace std;` ahead of this code
- * and code-generates the call site from the parameter and return types, so nothing here
- * declares an include, and no concept takes or returns a matrix — matrices arrive flat with
- * explicit dimensions, exactly as the tests show.
- *
+ * Keyed by catalogue slug; the tests live in `catalog.ts` so no language can disagree about
+ * what a concept does. The harness emits `#include <bits/stdc++.h>` and `using namespace std;`
+ * ahead of this code and code-generates the call site from the parameter and return types, so
+ * nothing here declares an include, and no concept takes or returns a matrix: matrices arrive
+ * flat with explicit dimensions, as the tests show.
  * `sumAsInt` and `sumRecursive` return `long long`: both exceed 2^31 on the given inputs, and
- * a 32-bit accumulator wrapping there is the very bug the `integer-overflow` concept teaches.
- * `sumRecursive` is written as a loop on purpose — the harness compiles at `-O0`, where C++
- * gives no tail-call guarantee, so a recursive version would exhaust the stack at n = 100000.
+ * a 32-bit accumulator wrapping there is the bug the `integer-overflow` concept teaches.
+ * `sumRecursive` is written as a loop because the harness compiles at `-O0`, where C++ gives
+ * no tail-call guarantee, so a recursive version would exhaust the stack at n = 100000.
  */
 
 export const CPP: Record<string, { starter: string; solution: string }> = {

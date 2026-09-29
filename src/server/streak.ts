@@ -1,18 +1,14 @@
 /**
  * The daily streak.
  *
- * A day counts when a CARD WAS SCHEDULED on it. That is the union of `cards.last_review` (a
- * graded DSA attempt) and `item_cards.last_review` (a concept, component, pattern, or design
- * round), so the streak rewards graded work of any kind rather than only LeetCode solves.
+ * A day counts when a CARD WAS SCHEDULED on it: the union of `cards.last_review` (a graded DSA
+ * attempt) and `item_cards.last_review` (a concept, component, pattern, or design round), so
+ * graded work of any kind counts, not only LeetCode solves.
  *
- * Derived, not tracked. There is no `streak` column and no per-day activity table: a counter
- * would have to be incremented on every path that schedules a card, and every one of those
- * paths is a place it could be missed or double-counted. Reading the two `last_review` columns
- * cannot drift, because they are the same writes the scheduler already makes.
- *
- * Days are LOCAL, not UTC. `date(x,'localtime')` is load-bearing: 2026-09-28T17:30:00.000Z is
- * the 28th in UTC and the 29th in WIB, so a UTC bucket would credit the wrong day for every
- * evening session.
+ * Derived, not tracked: there is no `streak` column and no per-day table. A counter could be
+ * missed or double-counted on any path that schedules a card, while the two `last_review`
+ * columns cannot drift, being the writes the scheduler already makes. Days are LOCAL, not UTC:
+ * `date(x,'localtime')` puts 2026-09-28T17:30:00.000Z on the 28th in UTC and the 29th in WIB.
  */
 
 import { db } from "./db.ts";
@@ -32,8 +28,8 @@ export type StreakStats = {
   todayDone: boolean;
   /**
    * The heatmap's data: every day in the window, oldest first, INCLUDING days with no activity
-   * (as `count: 0`). Zero days are sent rather than inferred so the client does no date
-   * arithmetic — it chunks the array into weeks and renders.
+   * (as `count: 0`). Zero days are sent, not inferred, so the client does no date arithmetic:
+   * it chunks the array into weeks and renders.
    *
    * The window is a whole number of Monday-aligned weeks ending with the current week, so the
    * first element is always a Monday and the last is always a Sunday.
@@ -43,7 +39,7 @@ export type StreakStats = {
   activeDays: number;
 };
 
-/** 52 weeks — a full year, the span every contribution graph is read against. */
+/** 52 weeks: a full year, the span every contribution graph is read against. */
 const WEEKS = 52;
 
 /** `YYYY-MM-DD` in local time. `toISOString` would be UTC and would shift the evening. */
@@ -54,7 +50,7 @@ function localDay(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
-/** Days since epoch for a `YYYY-MM-DD` string. Parsed as UTC deliberately: these are labels. */
+/** Days since epoch for a `YYYY-MM-DD` string. Parsed as UTC: these are labels. */
 function dayNumber(day: string): number {
   const [y, m, d] = day.split("-").map(Number);
   return Date.UTC(y!, m! - 1, d!) / 86400000;
@@ -70,15 +66,15 @@ function dayMinus(day: string, n: number): string {
   return dayFromNumber(dayNumber(day) - n);
 }
 
-/** Monday = 0 … Sunday = 6. 1970-01-01 was a Thursday, which is why the offset is 3. */
+/** Monday = 0 … Sunday = 6. 1970-01-01 was a Thursday, so the offset is 3. */
 function weekdayOf(day: string): number {
   return (dayNumber(day) + 3) % 7;
 }
 
 /**
  * Pure day-walk over `YYYY-MM-DD` strings, newest first. Exported so the streak arithmetic is
- * testable without a database — the SQL is a two-line union and the arithmetic is the part
- * that can be wrong.
+ * testable without a database: the SQL is a two-line union and the arithmetic is the part that
+ * can be wrong.
  *
  * A streak stays alive through *yesterday*: at 09:00 you have not done today's work yet, and
  * showing "0 day streak" every morning would be both wrong and discouraging. It breaks only

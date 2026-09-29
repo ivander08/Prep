@@ -1,23 +1,14 @@
 /**
- * The design concept library.
+ * The design concept library: sixty-one short tradeoff notes in seven groups, the topic index
+ * for the design round. The prose is original. `Designing Data-Intensive Applications` and the
+ * ByteByteGo System Design Handbook served only as a topic index (a checklist of what a design
+ * round touches) and an accuracy check on the mechanisms; no text from either is reproduced.
  *
- * Sixty-one short tradeoff notes in seven groups, used as the topic index for the design
- * round. The prose is original and written for this app. `Designing Data-Intensive
- * Applications` and the ByteByteGo System Design Handbook were used only as a topic index —
- * a checklist of what a design round is expected to touch — and as an accuracy check on the
- * mechanisms described. No text from either book is reproduced and no note cites one.
- *
- * Held in code rather than a table for the same reason `design/catalog.ts`,
- * `concepts/catalog.ts` and `patterns.ts` are: a prose edit is then a source edit, not a
- * migration, and a note can be added or reworded in the same commit as the thing that made it
- * necessary.
- *
- * Every concept names the PROBE FAMILIES it answers, as indices into `PROBE_FAMILIES` in
- * `design/policy.ts`. That is the join between what this library teaches and what the design
- * round grades: the round's probe ladder walks the same eight families, so a weak dimension in
- * a finished round can point at the concept that covers it. The tags also keep the library
- * honest — a group of notes that answers no probe family is a note the round never asks
- * about, and that is visible here rather than after a round is graded.
+ * Held in code, like `design/catalog.ts`, `concepts/catalog.ts` and `patterns.ts`, so a prose
+ * edit is a source edit, not a migration. Every concept names the PROBE FAMILIES it answers,
+ * as indices into `PROBE_FAMILIES` in `design/policy.ts`: the round's probe ladder walks the
+ * same eight families, so a weak dimension in a finished round can point at the concept that
+ * covers it, and a group of notes answering no probe family is one the round never asks about.
  */
 
 export type ConceptGroup =
@@ -55,7 +46,7 @@ export type DesignConcept = {
   title: string;
   /** The one-line answer, shown collapsed. */
   summary: string;
-  /** The note. 120-220 words, markdown, ending in the tradeoff rather than a definition. */
+  /** The note. 120-220 words, markdown, ending in the tradeoff, not a definition. */
   bodyMd: string;
   /** Indices into `PROBE_FAMILIES` (design/policy.ts) that this concept answers. */
   probeFamilies: number[];

@@ -2,10 +2,10 @@
  * Pattern reference card tests.
  *
  * These assert the properties that would otherwise ship broken and are invisible in review: a
- * card that helps only Python, a duplicate key that silently shadows an entry, an empty corner
- * case list. The `pattern` key is checked against the LIVE database, because the whole design of
- * `getPatternRef` rests on that string matching `problems.pattern` character for character — a
- * rename in the ingest would otherwise turn every card into a silent null.
+ * card that helps only Python, a duplicate key that hides another entry, an empty corner case
+ * list. The `pattern` key is checked against the live database, because `getPatternRef` rests on
+ * that string matching `problems.pattern` character for character. A rename in the ingest would
+ * otherwise turn every card into a null.
  */
 
 import { describe, expect, test } from "bun:test";

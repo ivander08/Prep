@@ -2,10 +2,10 @@
  * Stack prompt catalogue tests.
  *
  * The checks that matter are the slug set and the group partition. A typo'd slug is a prompt
- * whose detail endpoint 404s and whose grading path has no `lookFor` to score against — both
- * invisible until someone opens it — and a group that is missing from `GROUP_ORDER` renders a
- * section the list view never shows. The list-stripping check is the one that protects the
- * answer key: `lookFor` and `commonMistakes` must not travel to the client.
+ * whose detail endpoint 404s and whose grading path has no `lookFor` to score against, both
+ * invisible until someone opens it. A group missing from `GROUP_ORDER` renders a section the
+ * list view never shows. The list-stripping check protects the answer key: `lookFor` and
+ * `commonMistakes` must not travel to the client.
  */
 
 import { describe, expect, test } from "bun:test";

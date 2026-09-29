@@ -1,17 +1,14 @@
 /**
- * Python 3 — executable system-design components.
+ * Python 3: executable system-design components. `starter` is a scaffold that COMPILES and
+ * FAILS its tests; `solution` is the exemplar that must pass every case in `catalog.ts`.
+ * `components.test.ts` enforces that by running every starter and every exemplar through the
+ * executor: a starter that already passes teaches nothing, and a wrong exemplar would ship as
+ * the taught answer.
  *
- * `starter` is a scaffold that COMPILES and FAILS its tests; `solution` is the exemplar that
- * must pass every case in `catalog.ts`. That rule is enforced, not asserted: `components.test.ts`
- * runs every starter and every exemplar through the executor. A starter that already passes
- * teaches nothing, and a wrong exemplar would ship as the taught answer.
- *
- * The harness binds `class Solution` and calls the method named by
- * `fnNameFor("python3", name)` — snake_case of the catalogue's canonical name.
- *
- * THE HASH IS PART OF THE CONTRACT for `consistent-hash` and `bloom-filter`: both are
- * unsatisfiable without agreeing on it, so it appears identically in all five languages and is
- * stated in the prompt.
+ * The harness binds `class Solution` and calls the method named by `fnNameFor("python3", name)`,
+ * snake_case of the catalogue's canonical name. The hash is part of the contract for
+ * `consistent-hash` and `bloom-filter`: both are unsatisfiable without agreeing on it, and it
+ * appears identically in all five languages and in the prompt.
  */
 
 const HASH_DOC = `# hash(s) = fold over characters: h = (h * 31 + ord(c)) % 1000003`;

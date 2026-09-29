@@ -1,13 +1,13 @@
 /**
- * Executable system-design components — the runtime.
+ * Executable system-design components: the runtime.
  *
  * A one-for-one mirror of `concepts.ts`: seed the catalogue into a table, read it back, run a
  * submission through the shared executor, and schedule a pass on the same FSRS curve. The
  * differences are the table name, the module vocabulary, and the `op_format` column.
  *
- * `metaFor` is imported from `concepts.ts` rather than copied. The type-inference rule it
- * holds — scan every test case, not just the first, because an empty expected array is
- * type-ambiguous on its own — is the part worth not writing twice.
+ * `metaFor` is imported from `concepts.ts`, not copied. Its type-inference rule (scan every
+ * test case, not just the first, because an empty expected array is type-ambiguous on its
+ * own) is worth not writing twice.
  */
 
 import { db } from "./db.ts";
@@ -271,7 +271,7 @@ export function recordComponent(
   });
 
   // Nothing attempted (a compile error, say) is not evidence either way, so it is not
-  // scheduled — same rule the DSA path uses for `testsPassed === 0`.
+  // scheduled. Same rule the DSA path uses for `testsPassed === 0`.
   if (!result.accepted && result.passed === 0) {
     return { grade, due: null, intervalDays: null };
   }

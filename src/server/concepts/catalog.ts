@@ -1,26 +1,14 @@
 /**
- * Pre-DSA language fundamentals — the shared catalogue.
- *
- * One entry per concept, language-independent: the signature, the tests, and the prose.
- * Per-language code lives in `concepts/<lang>.ts` and supplies only `starter` and
- * `solution`. Keeping tests here rather than per language is deliberate — it makes it
- * impossible for two languages to disagree about what a concept is supposed to do, and it
- * makes the "every exemplar passes its own tests" check a single loop.
- *
- * WHY THESE TESTS LOOK CONSERVATIVE. They must pass through the same five harnesses the DSA
- * problems use, and those harnesses have real, verified limits:
- *
- *   - C++ return types are code-generated from `meta.return.type`, and only `integer`,
- *     `integer[]`, `boolean`, `string` and `string[]` have a comparison. A `int[][]` return
- *     is not expressible, so no concept returns a matrix — matrix concepts return a scalar
- *     or a flat array instead.
- *   - Java's argument coercion has no `int[][]` case, so no concept takes a matrix either;
- *     matrix inputs are passed flat with an explicit `cols` (or `rows, cols`).
- *   - C++ `to_string(result)` is the integer comparison, so anything that can exceed 32 bits
- *     returns a 64-bit integer in every language.
- *
- * Those limits shape the signatures. They are not cosmetic: a concept whose tests cannot
- * run in a language is not a concept that language can be taught here.
+ * Pre-DSA language fundamentals: one entry per concept, holding the signature, the tests and
+ * the prose. Per-language code lives in `concepts/<lang>.ts` and supplies only `starter` and
+ * `solution`, so two languages cannot disagree about what a concept does and the "every
+ * exemplar passes its own tests" check stays a single loop. The tests run through the same five
+ * harnesses the DSA problems use, which have verified limits: C++ return types are generated
+ * from `meta.return.type` and only `integer`, `integer[]`, `boolean`, `string` and `string[]`
+ * have a comparison; Java's argument coercion has no `int[][]` case, so matrix inputs are passed
+ * flat with an explicit `cols` (or `rows, cols`) and nothing returns a matrix; C++
+ * `to_string(result)` is the integer comparison, so anything that can exceed 32 bits returns a
+ * 64-bit integer in every language. A concept whose tests cannot run in a language cannot be taught here.
  */
 
 export type Module = "collections" | "strings" | "matrix" | "sorting" | "idioms" | "pitfalls";
@@ -32,8 +20,8 @@ export type ConceptSpec = {
   module: Module;
   title: string;
   /**
-   * Canonical camelCase name. Per-language casing is DERIVED from this (see `fnNameFor`)
-   * rather than written five times, so a typo cannot make one language's tests call a
+   * Canonical camelCase name. Per-language casing is DERIVED from this (see `fnNameFor`),
+   * so it is not written five times and a typo cannot make one language's tests call a
    * function that does not exist.
    */
   name: string;
@@ -48,8 +36,8 @@ export type ConceptSpec = {
    *
    * Go requires every import to precede all declarations, and the user's code is spliced in
    * after the harness's imports, so user code cannot import anything itself. Listed per
-   * concept rather than globally because Go rejects unused imports — a blanket list would
-   * break every DSA submission. Ignored by the other four languages.
+   * concept, not globally, because Go rejects unused imports and a blanket list would break
+   * every DSA submission. Ignored by the other four languages.
    */
   goImports?: string[];
 };
@@ -540,7 +528,7 @@ export const CONCEPTS: ConceptSpec[] = [
       { args: [2, 3, 9], expected: 0 },
       { args: [3, 3, 9], expected: 0 },
       // Single column is the ONLY shape that separates the two constructions. With cols > 1
-      // the aliased grid writes grid[0][0] and reads grid[rows-1][cols-1] — a different cell,
+      // the aliased grid writes grid[0][0] and reads grid[rows-1][cols-1], a different cell,
       // so it returns 0 either way and the test cannot tell. Verified by evaluating both:
       // for every case above, shared and independent rows return the same value. Without
       // these two, a student can ship `[[0]*cols]*rows` and pass a concept about that exact bug.
@@ -1130,8 +1118,8 @@ function pascal(name: string): string {
 /**
  * The function name a language's harness will call.
  *
- * Derived from the canonical name rather than stored per language, so the catalogue cannot
- * disagree with itself about what a concept's entry point is called.
+ * Derived from the canonical name, not stored per language, so the catalogue cannot disagree
+ * with itself about what a concept's entry point is called.
  */
 export function fnNameFor(lang: string, name: string): string {
   if (lang === "python3") return snake(name);

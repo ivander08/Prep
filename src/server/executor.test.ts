@@ -1,10 +1,10 @@
 /**
- * Executor acceptance fixtures — the regression tests from BUILD-SPEC §5.4.
+ * Executor acceptance fixtures: the regression tests from BUILD-SPEC §5.4.
  *
- * The load-bearing case is `correct_bruteforce`: correct but non-optimal. Published work
- * shows LLM judges misreject exactly this class (correct-code rejection rates fall from
- * 52.4% to 11.0% as prompts get more elaborate). If this suite ever starts failing that
- * case, something has replaced execution with judgement — which is the whole point.
+ * The central case is `correct_bruteforce`, correct but non-optimal. Published work shows LLM
+ * judges misreject this class (correct-code rejection rates fall from 52.4% to 11.0% as
+ * prompts get more elaborate). If this suite ever fails that case, something has replaced
+ * execution with judgement.
  *
  * Run: bun test
  */
@@ -65,7 +65,7 @@ describe("buildTestCases", () => {
       metaData: META,
     });
     expect(cases).toHaveLength(0);
-    // Names the cause rather than the symptom, and reports the counts for diagnosis.
+    // Names the cause, not the symptom, and reports the counts for diagnosis.
     expect(parseWarning).toMatch(/not in the standard "Input:\/Output:" layout/);
     expect(parseWarning).toMatch(/3 input groups, 0 output lines/);
   });

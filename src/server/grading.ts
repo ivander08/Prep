@@ -1,22 +1,13 @@
 /**
  * Structured I/O grading.
  *
- * The dataset's `test` field asserts exact equality. For problems with more than one valid
- * answer that is simply wrong: measured, a CORRECT `group-anagrams` solution that returned
- * its groups in a different order was marked WRONG ANSWER.
- *
- * This module grades differently:
- *   1. parse the stored `input_output` pairs into arguments and expected values
- *   2. run the user's code once, collecting raw return values (the harness compares nothing)
- *   3. decide correctness in TypeScript, applying a semantic verifier where one exists
- *
- * Deciding in TypeScript rather than in a generated assertion matters because the rules
- * become testable. An order-free comparison buried in a substituted Python string cannot be
- * unit-tested; `verifiers.ts` can.
- *
- * Cases whose stored expected value is a Python exception message are DROPPED, not graded.
- * The dataset's own reference solution crashed on those, so treating the message as an
- * expectation would fail every correct submission. They are reported as skipped.
+ * The dataset's `test` field asserts exact equality, which is wrong for problems with more than one
+ * valid answer: a correct `group-anagrams` solution returning its groups in a different order was
+ * marked WRONG ANSWER. This module parses the stored `input_output` pairs, runs the code once
+ * collecting raw return values, then decides correctness in TypeScript with a semantic verifier
+ * where one exists, so the rules are unit-testable (`verifiers.ts` holds the order-free cases). A
+ * case expecting a Python exception message is dropped and reported as skipped, since the dataset's
+ * own reference solution crashed on those.
  */
 
 import { writeFile, rm } from "node:fs/promises";
@@ -34,7 +25,7 @@ export type IoCaseResult = {
   expected: unknown;
   got: unknown;
   pass: boolean;
-  /** True when a semantic verifier decided this, rather than exact equality. */
+  /** True when a semantic verifier decided this case. */
   semantic: boolean;
   error?: string;
 };
@@ -113,27 +104,16 @@ export function prepareSuite(slug: string, ioJson: string, meta: ProblemMeta | n
     const expected = parseExpected(pair.output);
 
     /**
-     * A case whose expected value is `null` cannot be graded outside Python, so it is DROPPED
-     * rather than compared.
-     *
-     * `null` is not a value every language can produce. 2,357 cases across 68 problems expect
-     * `None`/`null` — they are problems that guarantee a solution exists, so the dataset's
-     * reference solution falls off the end. Measured on `two-sum`: a correct JavaScript solution
-     * scored 72/80 and a correct C++ solution 71/80, with every single failure an
-     * `expected: null` case.
-     *
-     * Python passes them because falling off the end returns `None`, which serialises to `null`.
-     * The other four return an empty array, or `undefined` (which `JSON.stringify` drops
-     * entirely, so the harness emits malformed JSON for that case), or they throw. "Implicitly
-     * returns nothing" is not expressible in a statically typed signature.
-     *
-     * Dropping beats inventing an equivalence: treating `[]` as "no solution" would accept an
-     * empty array on a problem where it IS the wrong answer, and a false ACCEPT is the one
-     * direction that teaches something untrue.
-     *
-     * A `void` entry point is the exception — there `null` is the genuine, representable answer,
-     * so those cases are kept. The skip is reported in the run's `skipped` count rather than
-     * hidden.
+     * A case whose expected value is `null` cannot be graded outside Python, so it is dropped and
+     * reported in the run's `skipped` count. `null` is not a value every language can produce:
+     * 2,357 cases across 68 problems expect `None`/`null`, because the dataset's reference solution
+     * falls off the end there. Measured on `two-sum`: a correct JavaScript solution scored 72/80 and
+     * a correct C++ solution 71/80, every failure an `expected: null` case. Python passes them
+     * because falling off the end returns `None`, which serialises to `null`; the other four return
+     * an empty array, `undefined` (which `JSON.stringify` drops entirely, so the harness emits
+     * malformed JSON for that case), or they throw. Dropping beats inventing an equivalence: treating
+     * `[]` as "no solution" would accept an empty array where it IS the wrong answer, and a false
+     * ACCEPT teaches something untrue. A `void` entry point is the exception; `null` fits there.
      */
     const retType = meta?.return?.type;
     if (expected.kind === "ok" && expected.value === null && retType !== "void") {
@@ -154,11 +134,10 @@ export function prepareSuite(slug: string, ioJson: string, meta: ProblemMeta | n
     }
 
     cases.push({
-      // The POSITION in the filtered payload, not the position in the original suite.
-      // The harness enumerates the cases it is given from 0, so any earlier skipped case
-      // would otherwise desync every later lookup: a suite whose first case was skipped
-      // returned "no result" for every case after it, because the harness reported index 0
-      // while the map was keyed by the original index 1.
+      // The POSITION in the filtered payload, not in the original suite. The harness enumerates
+      // the cases it is given from 0, so an earlier skipped case would otherwise desync every
+      // later lookup: a suite whose first case was skipped returned "no result" for every case
+      // after it, because the harness reported index 0 while the map was keyed by index 1.
       index: cases.length,
       input: pair.input,
       args,
@@ -181,8 +160,8 @@ const PY_IO_HARNESS = async (code: string, payloadB64: string, fn: string): Prom
 /**
  * Run a suite and grade it semantically.
  *
- * Never throws on user error: a syntax error or a crash comes back as a failed result
- * carrying the message, because that message is what the student needs to see.
+ * Never throws on user error: a syntax error or a crash comes back as a failed result carrying
+ * the message, because that message is what the student needs to see.
  */
 export async function runSuite(opts: {
   slug: string;
@@ -331,17 +310,13 @@ export async function runSuite(opts: {
 /**
  * Whether a language can construct this case's arguments at all.
  *
- * Java and C++ bind to the DECLARED parameter types, and both declare `int` as 32-bit. The
- * dataset contains inputs outside that range on problems whose signature is `int[]` — measured
- * on `two-sum`, one case passes `-3000000000`, which `Integer.parseInt` and `stoi` reject.
- *
- * That is a dataset/signature mismatch, not a wrong answer: the case cannot be RUN, so it must
- * not be counted as a failure. Reporting it as a failure would mark a correct solution wrong,
- * which is the exact false rejection this app exists to avoid. Python, JavaScript and Go have
- * arbitrary-precision or 64-bit integers and run it fine.
- *
- * C++ additionally has no `double` parameter coercion, so a `double` param is unconstructable
- * there; that is caught by the same rule rather than by a separate branch.
+ * Java and C++ bind to the declared parameter types, and both declare `int` as 32-bit. The
+ * dataset contains inputs outside that range on problems whose signature is `int[]`: measured on
+ * `two-sum`, one case passes `-3000000000`, which `Integer.parseInt` and `stoi` reject. That is a
+ * dataset/signature mismatch, not a wrong answer: the case cannot be run, so counting it as a
+ * failure would mark a correct solution wrong. Python, JavaScript and Go have arbitrary-precision
+ * or 64-bit integers and run it fine. C++ also has no `double` parameter coercion, so a `double`
+ * param is unconstructable there, caught by the same rule.
  */
 function caseFits(language: string, args: unknown[], meta: ProblemMeta | null): boolean {
   if (language !== "java" && language !== "cpp") return true;
@@ -397,25 +372,14 @@ export type AnyLanguageSuiteResult = {
 /**
  * Grade any language against the imported suite.
  *
- * THE POINT OF THIS FUNCTION: the suite is language-agnostic and always was. `io_cases` is a
- * JSON array of `{input: "nums = [3,3]", output: "[0,1]"}` pairs, and both the argument
- * parsing and the expected-value parsing happen in TypeScript (`prepareSuite`). The only
- * Python-specific part was the ASSERTS — `runFullTests` runs the dataset's generated
- * `check(candidate)` function, which is Python source.
- *
- * So a JavaScript or Go submission can use the same 80 cases as Python. It needs a different
- * CALLER, not a different suite: run each case through that language's existing harness
- * (`runInLanguage`, the same one the example-fallback path uses), then decide correctness here.
- *
- * Grading here rather than in the harness also removes a whole class of per-language bug. The
- * C++ harness has no `string[]` comparison at all, and its `int[]` comparison sorts both sides
- * — which silently accepts a wrong ORDER on a problem that cares about order. Comparing in one
- * place means one set of rules, and `verifiers.ts` already holds the order-free cases
- * explicitly.
- *
- * `runInLanguage` reports pass/fail per case using its own harness comparison; those verdicts
- * are ignored. The raw `got` values are what matter, and only the harness's `got` rendering
- * needs to be faithful.
+ * `io_cases` is a JSON array of `{input: "nums = [3,3]", output: "[0,1]"}` pairs, parsed in
+ * TypeScript (`prepareSuite`). Only the asserts were Python-specific, since `runFullTests` runs the
+ * dataset's generated `check(candidate)` function, so a JavaScript or Go submission uses the same
+ * 80 cases as Python with a different caller: each case goes through `runInLanguage`, and
+ * correctness is decided here. That removes a class of per-language bug: the C++ harness has no
+ * `string[]` comparison, and its `int[]` comparison sorts both sides, accepting a wrong order on a
+ * problem that cares about order. One place to compare means one set of rules, and `verifiers.ts`
+ * holds the order-free cases. `runInLanguage`'s verdicts are ignored; its `got` rendering is not.
  */
 export async function runSuiteAnyLanguage(opts: {
   slug: string;
@@ -430,13 +394,11 @@ export async function runSuiteAnyLanguage(opts: {
   const prepared = prepareSuite(opts.slug, opts.ioJson, opts.meta);
 
   /**
-   * Drop cases this language cannot construct, BEFORE running. See `caseFits` — a case whose
+   * Drop cases this language cannot construct before running. See `caseFits`: a case whose
    * arguments exceed the declared 32-bit type cannot be executed, so counting it as a failure
-   * would mark a correct solution wrong.
-   *
-   * Re-indexed as it is filtered, because the harness enumerates the cases it is HANDED from 0.
-   * Keeping the original suite position here would desync every lookup past the first dropped
-   * case and report "no result returned" for cases that ran fine.
+   * would mark a correct solution wrong. Re-indexed as it is filtered, because the harness
+   * enumerates the cases it is handed from 0. Keeping the original suite position would desync
+   * every lookup past the first dropped case and report "no result returned" for cases that ran.
    */
   const runnable: PreparedCase[] = [];
   for (const c of prepared.cases) {
@@ -466,15 +428,15 @@ export async function runSuiteAnyLanguage(opts: {
     language: opts.language,
     code: opts.code,
     fnName: opts.fnName,
-    // `orderless` is deliberately not set: this path decides ordering itself, via the
-    // semantic verifier, so the harness must not also be applying its own ordering rules.
+    // `orderless` is left unset: this path decides ordering itself via the semantic verifier,
+    // so the harness must not also apply its own ordering rules.
     cases: runnable.map((c) => ({ args: c.args, expected: c.expected })),
     meta: opts.meta,
     timeoutMs: opts.timeoutMs,
   });
 
-  // A compile error or a crash is reported as a run with no per-case results. Pass that
-  // through as-is rather than reporting "0 of 80 passed", which would blame the algorithm.
+  // A compile error or a crash is reported as a run with no per-case results. Pass that through
+  // as-is; reporting "0 of 80 passed" would blame the algorithm.
   if (run.cases.length === 0) {
     return {
       cases: [],

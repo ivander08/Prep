@@ -1,13 +1,13 @@
 /**
- * Tutor acceptance fixtures — BUILD-SPEC §8 Phase 2.
+ * Tutor acceptance fixtures: BUILD-SPEC §8 Phase 2.
  *
  * These cover the two deterministic components: the policy core and the code-reveal
- * detector. The LLM call itself is not unit-tested here — it is verified live against the
- * gateway, because mocking it would test the mock rather than the contract.
+ * detector. The LLM call itself is verified live against the gateway, because mocking it
+ * would test the mock, not the contract.
  *
- * The detector tests are the load-bearing ones. A detector that under-triggers hands over
- * the answer and destroys the exercise; one that over-triggers is merely annoying. The
- * asymmetry is deliberate and these tests pin it.
+ * The detector tests matter most. A detector that under-triggers hands over the answer and
+ * destroys the exercise; one that over-triggers is merely annoying. These tests pin that
+ * asymmetry.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -95,7 +95,7 @@ describe("detectViolations — the asymmetry that matters", () => {
   });
 
   test("a leaked solution is caught even when self-report is FALSE", () => {
-    // The model under-reporting its own leak is exactly the case the text analysis exists for.
+    // The model under-reporting its own leak is the case the text analysis exists for.
     const v = detectViolations(
       turn({
         hint_level: 1,
@@ -151,10 +151,10 @@ describe("detectViolations — the asymmetry that matters", () => {
 });
 
 describe("focus — the field the detector must never see", () => {
-  // Not every line a tutor would point at trips the syntax patterns — `for i in range(n):`
+  // Not every line a tutor would point at trips the syntax patterns: `for i in range(n):`
   // and `seen[x] = i` are both clean. The trap is the subset that does: a quoted `def`,
-  // a C-style `for(`, or a runtime call. Those are exactly the lines a hint about "your
-  // loop bound" or "your function signature" refers to, so the overlap is real, not
+  // a C-style `for(`, or a runtime call. Those are the lines a hint about "your loop
+  // bound" or "your function signature" refers to, so the overlap is real, not
   // hypothetical.
   const TRAPPING_QUOTES = [
     "def twoSum(self, nums, target):", // Python function definition
@@ -186,7 +186,7 @@ describe("focus — the field the detector must never see", () => {
   });
 
   test("parseFocus treats a missing field as no focus, not as an error", () => {
-    // Absent focus must NOT trigger the validate/repair retry: it is normal for an
+    // Absent focus must not trigger the validate/repair retry: it is normal for an
     // approach-level hint, and repairing would cost a second model call.
     expect(parseFocus(undefined)).toEqual([]);
     expect(parseFocus("nonsense")).toEqual([]);

@@ -1,10 +1,10 @@
 /**
- * Prep — local interview prep server.
+ * Prep: local interview prep server.
  *
  * Single-user, local-only. No auth, no accounts, no hosting: the app binds to 127.0.0.1
- * and everything lives in one SQLite file. That is a deliberate choice, not a shortcut —
- * it keeps problem statements cached locally instead of redistributed, which is what makes
- * using LeetCode's API defensible (dossier §10).
+ * and everything lives in one SQLite file. That keeps problem statements cached locally
+ * instead of redistributed, which is what makes using LeetCode's API defensible
+ * (dossier §10).
  */
 
 import { Hono } from "hono";
@@ -60,8 +60,8 @@ import {
 
 migrate();
 
-// The concept catalogue is code, so it is seeded on every boot rather than migrated: an edit
-// to the prose or an exemplar then takes effect on reload instead of needing a new migration.
+// The concept catalogue is code, so it is seeded on every boot, not migrated: an edit to
+// the prose or an exemplar then takes effect on reload without a new migration.
 seedConcepts();
 seedComponents();
 
@@ -87,7 +87,7 @@ app.get("/api/lists", (c) => {
 
 /**
  * Problem detail. The statement is fetched from LeetCode on first open and cached in
- * SQLite forever after — one network call per problem, ever.
+ * SQLite forever after: one network call per problem, ever.
  */
 app.get("/api/problems/:slug", async (c) => {
   const slug = c.req.param("slug");
@@ -131,12 +131,12 @@ app.get("/api/problems/:slug", async (c) => {
    * Fetch once, then never again.
    *
    * The guard is `fetched_at IS NULL`, not `statement_md IS NULL`. A Premium problem
-   * returns `content: null`, so it stores an empty statement — and an empty string is
-   * falsy, which made every open of a locked problem re-fetch from LeetCode. That is a
+   * returns `content: null`, so it stores an empty statement. An empty string is falsy,
+   * which made every open of a locked problem re-fetch from LeetCode. That is a
    * network call per page view for a result that cannot change.
    *
    * A manually pasted statement is also exempt: `statement_source = 'manual'` means the user
-   * wrote it, and a later fetch would silently replace their text with nothing.
+   * wrote it, and a later fetch would overwrite their text with nothing, with no notice.
    */
   if (row.fetched_at === null && statementSource !== "manual") {
     try {
@@ -183,10 +183,10 @@ app.get("/api/problems/:slug", async (c) => {
     )
     .get(row.qid);
 
-  // Premium-only and no prose. The tests still work — 375 Premium problems have imported
-  // suites, and `exampleTestcases`/`metaData` come back unauthenticated — so this is not an
+  // Premium-only and no prose. The tests still work: 375 Premium problems have imported
+  // suites, and `exampleTestcases`/`metaData` come back unauthenticated. So this is not an
   // error, it is one missing piece of the page. The signal is precise: examples came back
-  // but the statement did not, which is exactly the Premium response shape.
+  // but the statement did not, the Premium response shape.
   const premiumLocked = !statementMd && (examples ?? "").trim().length > 0;
 
   return c.json({
@@ -205,7 +205,7 @@ app.get("/api/problems/:slug", async (c) => {
     testCases: parsed.cases.map((tc) => ({ args: tc.args, expected: tc.expected })),
     // Returned as-is; the UI suppresses it when `hasSuite` and Python is selected, because a
     // 101-case suite is what grades the run then, and a "cannot be auto-graded" line beside an
-    // ACCEPTED verdict reads as a contradiction.
+    // accepted verdict reads as a contradiction.
     parseWarning: parsed.parseWarning ?? null,
     hasSuite,
     card: card ?? null,
@@ -243,9 +243,9 @@ app.post("/api/problems/:slug/statement", async (c) => {
 /**
  * A returned value too large to send, replaced by a note.
  *
- * `got` is unbounded — it is whatever the student's code returned — so one wrong answer that
+ * `got` is unbounded: it is whatever the student's code returned, so one wrong answer that
  * builds a large structure can serialise to megabytes for a single case (measured: 1.3 MB
- * for one case of a 400x40 string matrix). Grading happens on the raw value BEFORE this
+ * for one case of a 400x40 string matrix). Grading happens on the raw value before this
  * point, so replacing the payload here changes only what is displayed, never the verdict.
  *
  * The limit is generous: the largest legitimate answer in the corpus is a 5040-permutation
@@ -270,8 +270,8 @@ app.post("/api/run", async (c) => {
 
   if (!problem) return c.json({ error: "unknown problem" }, 404);
 
-  // NOTE: an empty `statement_md` is NOT a reason to refuse. A Premium problem stores an
-  // empty statement by design and still has a usable suite — refusing here would make 375
+  // NOTE: an empty `statement_md` is not a reason to refuse. A Premium problem stores an
+  // empty statement by design and still has a usable suite, so refusing here would make 375
   // gradeable Premium problems unrunnable.
 
   const language = body.language ?? "python3";
@@ -279,9 +279,9 @@ app.post("/api/run", async (c) => {
   // Prefer the imported full test suite: 37-144 executable cases instead of 2-3 public
   // examples, so it catches far more.
   //
-  // This is NOT Python-only, and it never needed to be. `io_cases` is a JSON array of
+  // This is not Python-only, and it never needed to be. `io_cases` is a JSON array of
   // `{input: "nums = [3,3]", output: "[0,1]"}` pairs and both sides are parsed in TypeScript,
-  // so the cases are language-agnostic — only the dataset's generated `check()` asserts are
+  // so the cases are language-agnostic; only the dataset's generated `check()` asserts are
   // Python. Every language therefore runs the same cases through its own harness and is
   // graded by the same TypeScript comparison.
   const suite = db
@@ -311,8 +311,8 @@ app.post("/api/run", async (c) => {
       semantic: graded.semanticCount > 0,
       durationMs: graded.durationMs,
       // Every case, not the first 40. A suite runs up to 128 (sort-colors) and a truncated
-      // list silently hides the failing case the student is looking for — the count line
-      // said "18/72" while only 40 were ever rendered.
+      // list hides the failing case the student is looking for: the count line said "18/72"
+      // while only 40 were ever rendered.
       cases: graded.cases.map((c) => ({
         index: c.index,
         input: c.input,
@@ -333,7 +333,7 @@ app.post("/api/run", async (c) => {
     });
   }
 
-  // A suite with no parsed `io_cases` can still be run, but only in Python — the dataset
+  // A suite with no parsed `io_cases` can still be run, but only in Python: the dataset
   // ships it as Python `assert` statements calling a Python entry point, so there is nothing
   // to hand another language.
   if (suite && language === "python3") {
@@ -362,9 +362,9 @@ app.post("/api/run", async (c) => {
 
   if (parsed.cases.length === 0) {
     // Design problems ("implement a Trie", "design an LRU cache") have a different metadata
-    // shape: a classname, a constructor, and a list of methods, rather than one function.
-    // The dataset has no suite for them either, so say so plainly instead of leaking the
-    // internal reason "no params in metaData", which reads like a bug.
+    // shape: a classname, a constructor, and a list of methods. The dataset has no suite for
+    // them either, so say so plainly instead of leaking the internal reason "no params in
+    // metaData", which reads like a bug.
     const meta = problem.meta_json ? (JSON.parse(problem.meta_json) as Record<string, unknown>) : {};
     if (typeof meta.classname === "string") {
       return c.json(
@@ -381,8 +381,8 @@ app.post("/api/run", async (c) => {
     }
 
     // Nothing to grade and it is not a design problem: the examples are in a layout this
-    // parser does not read. Flagged so the UI can explain rather than render a red failure —
-    // it is a limitation of the runner, not a wrong answer from the student.
+    // parser does not read. Flagged so the UI can explain instead of rendering a red failure.
+    // It is a limitation of the runner, not a wrong answer from the student.
     if (parsed.parseWarning) {
       return c.json({ error: parsed.parseWarning, noGradeableTests: true }, 422);
     }
@@ -404,10 +404,10 @@ app.post("/api/run", async (c) => {
     source: "examples",
     failedAssertion: null,
     parseWarning: parsed.parseWarning ?? null,
-    // Surfaced deliberately: only exampleTestcases are public, so a green run here is not
+    // Surfaced on purpose: only exampleTestcases are public, so a green run here is not
     // a guarantee of passing LeetCode's hidden tests.
     //
-    // Reaching this branch means the problem has NO imported suite at all — the suite path
+    // Reaching this branch means the problem has no imported suite at all. The suite path
     // above handles every language, so this is not a language limitation. Saying "suites are
     // Python-only" here would be false and would send the student to switch languages for
     // nothing.
@@ -469,7 +469,7 @@ app.post("/api/attempts", async (c) => {
   // Only schedule a card once the problem has actually been worked on.
   const schedule = body.passed || body.testsPassed > 0 ? reviewCard(problem.qid, grade, now) : null;
 
-  // Mastery is derived from the attempt log, so it is recomputed rather than incremented.
+  // Mastery is derived from the attempt log, so it is recomputed, never incremented.
   // One person's history is small enough that a full rebuild is cheaper than the risk of a
   // derived table drifting from its source.
   recomputeMastery();
@@ -484,7 +484,7 @@ app.post("/api/attempts", async (c) => {
 /**
  * Every item due for review, across every track.
  *
- * One list rather than one section per kind: `kind` takes six values and three of them had no
+ * One list, not one section per kind: `kind` takes six values and three of them had no
  * reader at all, so their due dates were written and never read back. The row's `kind` tells
  * the client which track it belongs to and therefore where clicking it goes.
  */
@@ -498,7 +498,7 @@ app.get("/api/review", (c) => {
  *
  * Called by the client after `/api/attempts` succeeds, because the attempt has to exist
  * before its grade can be read. Not folded into `/api/attempts` because a problem belongs to
- * exactly one pattern and the pattern review is a separate, deliberate act.
+ * one pattern, and the pattern review is a separate act.
  */
 app.post("/api/review/patterns/:pattern/grade", async (c) => {
   const pattern = decodeURIComponent(c.req.param("pattern"));
@@ -557,7 +557,7 @@ app.get("/api/tutor/:slug/status", (c) => {
     attempts: state.attempts,
     minutes: Math.round(state.minutes),
     turns: history.length,
-    // Over-blocking is a measured failure, so surface it rather than hiding it.
+    // Over-blocking is a measured failure, so it is surfaced, not hidden.
     rejectedTurns: history.filter((h) => h.rejected === 1).length,
     costIdr: history.reduce((a, h) => a + (h.cost_idr ?? 0), 0),
   });
@@ -624,7 +624,7 @@ app.post("/api/tutor/:slug/review", async (c) => {
 // System design
 // ---------------------------------------------------------------------------
 
-/** The prompt list. Summaries only — the answer keys never reach the client. */
+/** The prompt list. Summaries only; the answer keys never reach the client. */
 app.get("/api/design", (c) => {
   return c.json({ prompts: listDesignPrompts() });
 });
@@ -743,7 +743,7 @@ app.post("/api/design/:id/finish", async (c) => {
     const session = loadSession(id);
     const result = await gradeDesign(id);
 
-    // Only a round that cleared the bottom band comes back for review — the same rule the DSA
+    // Only a round that cleared the bottom band comes back for review, the same rule the DSA
     // path applies when nothing passed. A round scored `Again` is not evidence of a pattern
     // worth scheduling.
     let schedule: { due: string; intervalDays: number } | null = null;
@@ -753,7 +753,7 @@ app.post("/api/design/:id/finish", async (c) => {
     }
 
     // The bridge target, resolved through the component table so the language prefix comes
-    // from the seeded row rather than being assumed here. A prompt whose component is not in
+    // from the seeded row, not from an assumption here. A prompt whose component is not in
     // the catalogue simply has no bridge.
     const bridge = getDesignPrompt(session.slug)?.componentSlug ?? null;
     const component = bridge ? getComponent(`python3/${bridge}`) : null;
@@ -766,14 +766,14 @@ app.post("/api/design/:id/finish", async (c) => {
       costIdr: result.costIdr,
       nextDue: schedule?.due ?? null,
       intervalDays: schedule?.intervalDays ?? null,
-      // The bridge to the Build track. Sent only with the finished round rather than in the
-      // prompt list, because naming the component before the round would be a hint about the
-      // design — the candidate is meant to arrive at it themselves.
+      // The bridge to the Build track. Sent only with the finished round, not in the prompt
+      // list, because naming the component before the round would be a hint about the
+      // design; the candidate is meant to arrive at it themselves.
       //
       // The slug is prefixed with the language so the Build view can open it directly: the
-      // catalogue is keyed by `lang/slug`, and a bare slug would silently fail to match and
-      // land the candidate on whichever component happens to be first. `component.slug` is
-      // already prefixed by `getComponent`, so it is used as-is rather than prefixed again.
+      // catalogue is keyed by `lang/slug`, and a bare slug would match nothing and land the
+      // candidate on whichever component happens to be first. `component.slug` is already
+      // prefixed by `getComponent`, so it is used as-is.
       componentSlug: component?.slug ?? null,
     });
   } catch (e) {
@@ -789,14 +789,14 @@ app.post("/api/design/:id/finish", async (c) => {
 /**
  * Registers the six routes for one prose kind. Two kinds, one implementation.
  *
- * Route order inside this function is load-bearing and matches the design section's precedent:
- * `/resume` and `/item` are registered BEFORE `/:id`, because Hono matches in registration
+ * Route order inside this function matters and matches the design section's precedent:
+ * `/resume` and `/item` are registered before `/:id`, because Hono matches in registration
  * order and a parameter route would otherwise capture them and reject them as a bad id.
  */
 function registerProseTrack(app: Hono, kind: ProseTrackKind): void {
   const base = `/api/tracks/${kind}`;
 
-  /** The prompt list, grouped. Summaries only — the answer keys never reach the client. */
+  /** The prompt list, grouped. Summaries only; the answer keys never reach the client. */
   app.get(base, (c) => {
     const groups = listTrackGroups(kind);
     return c.json({ groups, total: groups.reduce((n, g) => n + g.prompts.length, 0) });
@@ -805,19 +805,19 @@ function registerProseTrack(app: Hono, kind: ProseTrackKind): void {
   /**
    * The attempt still in progress, or null.
    *
-   * The client calls this on mount so a reload — the one event that would otherwise lose an
-   * unfinished answer — lands back on the work rather than on an empty prompt list.
+   * The client calls this on mount so a reload, the one event that would otherwise lose an
+   * unfinished answer, lands back on the work instead of on an empty prompt list.
    *
-   * Registered BEFORE `/:id`: Hono matches in registration order, so a later literal route
+   * Registered before `/:id`: Hono matches in registration order, so a later literal route
    * would be captured by the parameter route and rejected as a bad id.
    */
   app.get(`${base}/resume`, (c) => c.json({ session: latestOpenTrackSession(kind) }));
 
   /**
-   * One prompt WITH its answer key.
+   * One prompt with its answer key.
    *
-   * The answer key is served here rather than in the list because this is the point at which
-   * the candidate has committed to answering: the list is a menu, and a menu that shipped the
+   * The answer key is served here, not in the list, because this is the point at which the
+   * candidate has committed to answering: the list is a menu, and a menu that shipped the
    * `lookFor` bullets would be the answer key handed out before the question.
    *
    * Registered before `/:id` for the same reason `/resume` is.
@@ -860,10 +860,10 @@ function registerProseTrack(app: Hono, kind: ProseTrackKind): void {
    * Grade the answer and schedule it.
    *
    * A 409 for an already-graded session, because the second submission is a real client bug
-   * rather than a transient failure — the row is finished and its grade would be overwritten
-   * by a second, differently-seeded call.
+   * and not a transient failure: the row is finished and its grade would be overwritten by a
+   * second, differently-seeded call.
    *
-   * A grading failure is a 502 and leaves the session UNGRADED, so the answer is intact and can
+   * A grading failure is a 502 and leaves the session ungraded, so the answer is intact and can
    * be resubmitted. The same shape `gradeDesign` uses.
    */
   app.post(`${base}/:id/finish`, async (c) => {
@@ -1001,23 +1001,14 @@ app.get("/api/reset/preview", (c) => {
 /**
  * Clear all learning state.
  *
- * The catalog (problems, lists, company tags, test suites) is untouched — re-importing it
- * takes ~70s and there is no reason to make the user wait for a reset of their own
- * progress. `model_roles` is also kept: it is a preference, not progress.
- *
- * Deleting `tutor_turns` before `attempts` matters — the foreign key is
- * `tutor_turns.attempt_id REFERENCES attempts(id)`, and with `foreign_keys = ON` the
- * reverse order fails.
- *
- * `design_sessions` and `track_sessions` go too. Leaving them behind kept a cleared
- * milestone cleared only until the next read: `first-design-round` evaluates
- * `SELECT 1 FROM design_sessions WHERE grade IS NOT NULL AND grade > 1`, so the surviving
- * row re-awarded the milestone the user had just reset. A half-written round also still
- * resumed through `latestOpenSession`. Neither table is referenced by a foreign key, so
- * their position in the list is free.
- *
- * `items` is not in the list. Its rows are catalogue-derived (`ensureKindItem` recreates
- * them on demand) and hold no progress.
+ * The catalog is untouched: re-importing it takes ~70s, and `model_roles` is a preference.
+ * `items` rows are catalogue-derived (`ensureKindItem` recreates them) and hold no progress.
+ * `design_sessions` and `track_sessions` go too: leaving them behind kept a cleared milestone
+ * cleared only until the next read. `first-design-round` evaluates
+ * `SELECT 1 FROM design_sessions WHERE grade IS NOT NULL AND grade > 1`, so the surviving row
+ * re-awarded it. A half-written round also resumed through `latestOpenSession`.
+ * `tutor_turns` goes before `attempts`: `tutor_turns.attempt_id REFERENCES attempts(id)`, and
+ * with `foreign_keys = ON` the reverse order fails.
  */
 app.post("/api/reset", async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as { confirm?: string };
@@ -1151,12 +1142,12 @@ app.get("/api/roadmap", (c) => {
 /**
  * The reference card for one pattern.
  *
- * `pattern` is a QUERY parameter, not a path segment: pattern names contain `&` and `/`
+ * `pattern` is a query parameter, not a path segment: pattern names contain `&` and `/`
  * ("Arrays & Hashing", "Heap / Priority Queue"), so a `:pattern` route would need the client
  * to double-encode and would still 404 on a mis-encoded ampersand. Same reason the concept
  * endpoints are addressed by query.
  *
- * A pattern with no card returns `200 { ref: null }`, not 404 — "no card yet" is a normal state
+ * A pattern with no card returns `200 { ref: null }`, not 404: "no card yet" is a normal state
  * because the pattern vocabulary is ingested, and the client renders nothing for it.
  */
 app.get("/api/reference/pattern", (c) => {
@@ -1219,8 +1210,8 @@ app.get("/api/languages", async (c) => {
  * Concepts grouped into modules, in teaching order.
  *
  * The slug contains a slash (`python3/2d-array-init`) and Hono route parameters do not match
- * across `/`, so the item is addressed by QUERY parameter rather than a path parameter. A
- * `:slug` route would 404 on every real slug; a wildcard would swallow `/api/concepts/run`.
+ * across `/`, so the item is addressed by a query parameter. A `:slug` route would 404 on every
+ * real slug; a wildcard would swallow `/api/concepts/run`.
  */
 app.get("/api/concepts", (c) => {
   const lang = c.req.query("lang") ?? undefined;
@@ -1247,8 +1238,8 @@ app.get("/api/concepts/item", (c) => {
  * Run a submission against a concept's tests.
  *
  * Graded by the same executor the DSA problems use, and on a pass the concept is scheduled
- * through `item_cards` with the same behavioural grade — there is no self-rating anywhere in
- * this app and a concept is not an exception.
+ * through `item_cards` with the same behavioural grade: there is no self-rating anywhere in
+ * this app, and a concept is not an exception.
  */
 app.post("/api/concepts/run", async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as { slug?: string; code?: string; seconds?: number };
@@ -1283,7 +1274,7 @@ app.post("/api/concepts/run", async (c) => {
 /**
  * Components grouped into modules, in teaching order.
  *
- * Addressed by QUERY parameter for the same reason the concepts are: the slug contains a slash
+ * Addressed by a query parameter for the same reason the concepts are: the slug contains a slash
  * (`python3/lru-cache`) and a `:slug` route would 404 on every real slug, while a wildcard
  * would swallow `/api/components/run`.
  */

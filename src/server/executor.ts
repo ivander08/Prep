@@ -1,22 +1,14 @@
 /**
- * Executor — the source of truth for correctness.
- *
- * The LLM never decides whether code is correct. It narrates why; this decides.
- * The case for that split is measurable: LLM judges misreject *correct but non-optimal*
- * code (published rejection rates fall from 52.4% to 11.0% as prompts get more
- * elaborate). A correct brute-force Two Sum is exactly that class of submission, and
- * this executor accepts it instantly.
- *
- * TWO GOTCHAS, both found by running it — see the dossier §5.4:
- *   1. `exampleTestcases` lines are JSON-encoded STRINGS ('[2,7,11,15]', '9'), not
- *      values. They must be JSON.parse'd per line and grouped by params.length.
- *   2. LeetCode's Python stub is a `Solution` CLASS METHOD taking `self`, but
- *      `metaData.params` OMITS `self`. A naive harness calls a bare function and fails
- *      EVERY submission with "missing 1 required positional argument".
- *
- * KNOWN LIMITATION, surfaced in the UI rather than hidden: only `exampleTestcases` are
- * public. LeetCode's hidden tests are not in the API, so passing here is not a guarantee
- * of passing LeetCode.
+ * Executor: the source of truth for correctness. The LLM never decides whether code is
+ * correct; it narrates why. That split is measurable: LLM judges misreject correct but
+ * non-optimal code (published rejection rates fall from 52.4% to 11.0% as prompts get more
+ * elaborate). A brute-force Two Sum is accepted here.
+ * Two gotchas, both found by running it (dossier §5.4): `exampleTestcases` lines are
+ * JSON-encoded strings ('[2,7,11,15]', '9') and must be parsed per line and grouped by
+ * params.length; and LeetCode's Python stub is a `Solution` class method taking `self`, while
+ * `metaData.params` omits it, so a bare call fails every submission with "missing 1 required
+ * positional argument". Passing here is no guarantee of passing LeetCode, whose hidden tests
+ * are not in the API.
  */
 
 import { fetchProblem, htmlToMarkdown } from "./leetcode.ts";
@@ -45,7 +37,7 @@ export type RunResult = {
   accepted: boolean;
   durationMs: number;
   stderr?: string;
-  /** Set when the expected outputs could not be parsed — NOT the same as "wrong". */
+  /** Set when the expected outputs could not be parsed, which is not the same as "wrong". */
   parseWarning?: string;
 };
 
@@ -81,7 +73,7 @@ function parseOutputValue(raw: string): { ok: true; value: unknown } | { ok: fal
   try {
     return { ok: true, value: JSON.parse(s) };
   } catch {
-    // Bare identifier / prose (e.g. a tree or list rendered as [1,2,null,3]) — give up.
+    // Bare identifier / prose (e.g. a tree or list rendered as [1,2,null,3]). Give up.
     return { ok: false, reason: `not JSON: ${JSON.stringify(s.slice(0, 60))}` };
   }
 }
@@ -127,14 +119,14 @@ export function buildTestCases(args: {
 
   const outputs = parseExpectedOutputs(args.statementMd);
 
-  // "return the answer in any order" — exact array equality would fail a valid permutation.
+  // "return the answer in any order": exact array equality would fail a valid permutation.
   const orderless = /\bin any order\b/i.test(args.statementMd);
 
   if (outputs.length < groups.length) {
     return {
       meta,
       cases: [],
-      // The old message ("found 2 input groups but only 0 Output lines — cannot grade
+      // The old message ("found 2 input groups but only 0 Output lines, cannot grade
       // reliably") was accurate but described the symptom. This names the cause and what
       // the runner does instead, because the student sees this text and cannot act on the
       // symptom. The counts stay for diagnosis.
@@ -254,21 +246,16 @@ export type FullRunResult = {
 };
 
 /**
- * Run a user's solution against the imported full test suite.
- *
- * The dataset ships a `check(candidate)` function containing many
- * `assert candidate(...) == expected` statements, plus a `prompt` block that carries the
- * imports and a ListNode/TreeNode prelude some problems need. The prelude must be emitted
- * BEFORE user code or those problems fail on an undefined name.
- *
+ * Run a user's solution against the imported full test suite. The dataset ships a
+ * `check(candidate)` function containing many `assert candidate(...) == expected` statements,
+ * plus a `prompt` block carrying the imports and a ListNode/TreeNode prelude some problems
+ * need. The prelude must be emitted BEFORE user code or those problems fail on an undefined name.
  * `entry_point` is a dotted path (`Solution().shortestDistanceAfterQueries`), so it is
- * evaluated rather than called directly — that is exactly how the dataset's own harness
- * does it, and it binds the same way the executor already calls user code.
- *
- * Assertions are counted by running `check()` and catching AssertionError. There is no
- * per-assertion granularity available from an assert-based suite, so a failure reports the
- * first failing assertion rather than a pass/fail count. That is a real limitation of the
- * format, not an oversight.
+ * evaluated the way the dataset's own harness does it, and binds the same way the executor
+ * already calls user code.
+ * Assertions are counted by running `check()` and catching AssertionError. An assert-based
+ * suite offers no per-assertion granularity, so a failure reports the first failing assertion
+ * and no pass/fail count. That is a limitation of the format, not an oversight.
  */
 export async function runFullTests(opts: {
   code: string;
@@ -362,10 +349,10 @@ export async function runFullTests(opts: {
 /**
  * Execute Python against the cases in a subprocess. Never throws on user error.
  *
- * The whole program (user code + harness + payload) is assembled into ONE temp file
- * rather than piped through stdin: user code and payload sharing a stream means
- * `json.loads(sys.stdin.read())` sees concatenated text and fails on every run.
- * The payload is base64'd so no user code can collide with it.
+ * The whole program (user code + harness + payload) goes into ONE temp file. Piping it
+ * through stdin instead means user code and payload share a stream, so
+ * `json.loads(sys.stdin.read())` sees concatenated text and fails on every run. The payload
+ * is base64'd so no user code can collide with it.
  */
 export async function runPython(opts: RunOptions): Promise<RunResult> {
   const timeoutMs = opts.timeoutMs ?? 10_000;

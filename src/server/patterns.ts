@@ -1,20 +1,14 @@
 /**
- * Pattern mapping and company tags.
+ * Pattern mapping and company tags. Patterns come from `neetcode-gh/leetcode`'s
+ * `.problemSiteData.json`, whose roadmap category per problem ("Arrays & Hashing", ...) differs
+ * from LeetCode's flat `topics` tags: `pattern` is the single technique family the roadmap
+ * teaches, and mastery is per pattern because patterns transfer and individual problems do not.
+ * The join is on the LeetCode slug from `link`, not the NeetCode slug, because NeetCode renames
+ * problems (74 of 250 NC250 entries differ).
  *
- * PATTERNS come from `neetcode-gh/leetcode`'s `.problemSiteData.json`, which carries the
- * roadmap category per problem ("Arrays & Hashing", "Sliding Window", ...). This is
- * distinct from LeetCode's own `topics` column: topics is a flat set of tags, while
- * `pattern` is the single technique family the roadmap teaches. Mastery is tracked per
- * pattern because patterns transfer and individual problems do not — that is the whole
- * argument for reviewing at pattern level.
- *
- * The join is on the LeetCode slug taken from the entry's `link` field, NOT on the
- * NeetCode slug, because NeetCode renames problems (74 of 250 NC250 entries differ).
- *
- * COMPANY TAGS come from `liquidslr/leetcode-company-wise-problems` (470 companies). Each
- * company directory has a `5. All.csv` with `Difficulty,Title,Frequency,Acceptance
- * Rate,Link,Topics`. The Link column gives the authoritative LeetCode slug; titles differ
- * in punctuation and casing so joining on title would miss rows.
+ * Company tags come from `liquidslr/leetcode-company-wise-problems` (470 companies). Each
+ * company directory's `5. All.csv` Link column is the authoritative LeetCode slug; titles
+ * differ in punctuation and casing, so joining on title would miss rows.
  */
 
 import { db, migrate } from "./db.ts";

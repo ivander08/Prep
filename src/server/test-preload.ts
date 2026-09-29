@@ -1,12 +1,12 @@
 /**
- * Bun test preload — isolates every test run from the real database.
+ * Bun test preload: isolates every test run from the real database.
  *
- * Without this, a test that seeds attempt history writes it into `data/prep.db` and it
- * shows up as the user's own progress. That happened: 112 seeded attempts appeared as the
- * user's solved count. A test run must never mutate the thing it is testing.
+ * Without this, a test that seeds attempt history writes it into `data/prep.db` and it shows up
+ * as the user's own progress. That happened: 112 seeded attempts appeared as the user's solved
+ * count. A test run must never mutate the thing it is testing.
  *
- * The catalog tables ARE copied, because tests legitimately need reference data (problem
- * slugs, patterns, lists). Only the user-owned tables are left empty.
+ * The catalog tables ARE copied, because tests legitimately need reference data (problem slugs,
+ * patterns, lists). Only the user-owned tables are left empty.
  *
  * Registered via `preload` in bunfig.toml so it runs before any test module imports db.ts.
  */

@@ -1,16 +1,10 @@
 /**
  * Ingest: populate the local catalog and curated-list membership.
- *
  * Sources and why each was chosen (all verified 2026-09-27, see dossier §3.2):
- *   - neetcode-gh/leetcode  .problemSiteData.json — MIT, 450 entries, carries
- *     neetcode150 + blind75 flags, pattern, difficulty, solutions in 14 languages.
- *   - ascherj/neetcode-250-guide — neetcode_250_complete.json, 250 problems.
- *   - LeetCode studyPlanV2Detail — LeetCode 75, Top Interview 150, SQL 50 (free).
- *
- * THE GOTCHA THAT MATTERS: NeetCode RENAMES problems, so its slugs differ from
- * LeetCode's for 74 of 250 NC250 entries (duplicate-integer → contains-duplicate,
- * is-anagram → valid-anagram, two-integer-sum → two-sum). Joining on the NeetCode slug
- * matched only 176/250. Joining on the `leetcode_url` slug matches 250/250.
+ *   - neetcode-gh/leetcode  .problemSiteData.json (MIT, 450 entries), carries neetcode150 + blind75 flags, pattern, difficulty, solutions in 14 languages.
+ *   - ascherj/neetcode-250-guide: neetcode_250_complete.json, 250 problems.
+ *   - LeetCode studyPlanV2Detail: LeetCode 75, Top Interview 150, SQL 50 (free).
+ * The gotcha that matters: NeetCode RENAMES problems, so its slugs differ from LeetCode's for 74 of 250 NC250 entries (duplicate-integer → contains-duplicate, is-anagram → valid-anagram, two-integer-sum → two-sum). Joining on the NeetCode slug matched only 176/250; joining on the `leetcode_url` slug matches 250/250.
  */
 
 import { db, migrate, setMeta } from "./db.ts";
@@ -21,8 +15,8 @@ const NEETCODE_DATA_URL =
 const NC250_URL =
   "https://raw.githubusercontent.com/ascherj/neetcode-250-guide/main/neetcode_250_complete.json";
 
-// LeetCode's own plans. NOTE `top-sql-50`, not `sql-50` — the latter returns null
-// silently, which looks identical to an empty plan.
+// LeetCode's own plans. NOTE `top-sql-50`, not `sql-50`: the latter returns null with no
+// error, which looks identical to an empty plan.
 const STUDY_PLANS: Array<{ slug: string; name: string }> = [
   { slug: "leetcode-75", name: "leetcode75" },
   { slug: "top-interview-150", name: "topInterview150" },
@@ -34,7 +28,7 @@ type NcEntry = {
   blind75?: boolean;
   problem: string;
   pattern: string;
-  link: string; // e.g. "contains-duplicate/" — a NEETCODE slug, not a LeetCode one
+  link: string; // e.g. "contains-duplicate/": a NEETCODE slug, not a LeetCode one
   difficulty: string;
 };
 
@@ -43,7 +37,7 @@ type Nc250Entry = {
   difficulty: string;
   category: string;
   leetcode_url: string; // authoritative LeetCode URL
-  slug: string; // NeetCode's slug — do NOT join on this
+  slug: string; // NeetCode's slug. Do NOT join on this.
 };
 
 /** Extract the LeetCode slug from any of the shapes these sources use. */
@@ -144,7 +138,7 @@ export async function ingestNeetCode(): Promise<void> {
   addMemberships("neetcodeAll", ncAll, "neetcode-gh (all rows)");
 
   const nc250raw = await fetchJson<{ problems: Nc250Entry[] }>(NC250_URL);
-  // Join on the LeetCode URL, NOT the NeetCode slug — see the header comment.
+  // Join on the LeetCode URL, NOT the NeetCode slug. See the header comment.
   const nc250 = nc250raw.problems.map((p) => leetcodeSlug(p.leetcode_url) ?? p.slug);
   addMemberships("neetcode250", nc250, "ascherj, joined via leetcode_url");
 }

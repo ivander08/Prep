@@ -1,13 +1,13 @@
 /**
  * Multi-language executor fixtures.
  *
- * The binding rule differs per language — Python and Java use `class Solution` with a bound
- * method, JavaScript and Go are bare functions — and getting it wrong fails EVERY
- * submission rather than failing loudly. So each language is exercised against a known-good
- * and a known-bad solution.
+ * The binding rule differs per language. Python and Java use `class Solution` with a bound
+ * method, JavaScript and Go are bare functions, and getting it wrong fails EVERY submission
+ * instead of failing loudly. So each language is exercised against a known-good and a
+ * known-bad solution.
  *
- * A language whose runtime is not installed is skipped rather than failed, so the suite
- * still runs on a machine without a full toolchain.
+ * A language whose runtime is not installed is skipped, not failed, so the suite still runs
+ * on a machine without a full toolchain.
  */
 
 import { beforeAll, describe, expect, test } from "bun:test";
@@ -22,7 +22,7 @@ const CASES = [
 
 /**
  * C++ needs the signature: it is statically typed, so the harness is generated from the
- * parameter and return types rather than built generically.
+ * parameter and return types. A generic harness cannot infer them.
  */
 const META = {
   name: "twoSum",

@@ -1,25 +1,14 @@
 /**
- * Prose-answer grading.
+ * Prose-answer grading, shared by the behavioral and stack tracks. The design round's three
+ * mechanisms are reused, because a second grader would drift: `structured()`
+ * (`tutor/client.ts`) with a tool schema and a validator; `quoteAppears` (`design/index.ts`)
+ * quote validation, which discards a score that cannot quote the candidate's own text and
+ * lets the signal score stand in; and `gradeFromScores()` (`design/rubric.ts`), mapping the
+ * 1-4 dimension scores onto FSRS grades so a prose answer schedules through `reviewItem`.
  *
- * The behavioral and stack tracks both ask for a written answer and grade it against a rubric,
- * so this is ONE module and not two. The same three mechanisms the design round uses are reused
- * rather than re-derived, because a second grader would drift from the first:
- *
- *   - `structured()` (`tutor/client.ts`) with a tool schema and a validator, so the model
- *     returns a shape and a retry happens on a malformed one.
- *   - Verbatim-quote validation via `quoteAppears` (`design/index.ts`): a score that cannot
- *     quote the candidate's own text is discarded and the mechanical signal score stands in.
- *     This is what stops a model moving a number without pointing at the words that moved it.
- *   - `gradeFromScores()` (`design/rubric.ts`) maps the 1-4 dimension scores onto the app's
- *     FSRS grades, so a prose answer schedules through the same `reviewItem` call as everything
- *     else.
- *
- * There is no code execution here and therefore no `gradeAttempt`.
- *
- * The clamp is the design round's rule, applied to different anchors: a verified quote buys at
- * most one point of movement off the signal-derived score, and a mechanical cap (short answer,
- * no first person, nothing quantified) can hold a dimension down below what the model claimed.
- * The model shades a score; it does not set one.
+ * No code execution here, so no `gradeAttempt`. The clamp: a verified quote buys at most one
+ * point off the signal-derived score, and a mechanical cap holds a dimension below what the
+ * model claimed, so the model shades a score without setting one.
  */
 
 import { structured, KenariError, type CallMeta, type ToolDef } from "../tutor/client.ts";
@@ -94,9 +83,9 @@ export type TrackGradeResult = {
  */
 export type AnswerSignals = {
   words: number;
-  /** First-person singular pronouns — a behavioral answer that never says "I" is describing a team. */
+  /** First-person singular pronouns: a behavioral answer that never says "I" is describing a team. */
   firstPerson: number;
-  /** Numbers, percentages, or durations — evidence that an outcome was measured. */
+  /** Numbers, percentages, or durations: evidence that an outcome was measured. */
   quantified: number;
   /** Past-tense verbs suggesting a concrete action was taken. */
   actionVerbs: number;
@@ -105,25 +94,25 @@ export type AnswerSignals = {
 /**
  * First-person singular, including the contracted forms.
  *
- * `\bI\b` alone misses "I'd", "I've" and "I'm", which are exactly how a first-person answer
- * reads in practice — matching only the bare pronoun would score a written-out answer as
- * having no ownership at all.
+ * `\bI\b` alone misses "I'd", "I've" and "I'm", the forms a first-person answer usually takes
+ * in practice. Matching only the bare pronoun would score a written-out answer as having no
+ * ownership at all.
  */
 const FIRST_PERSON_RE = /\b(i|i'd|i've|i'll|i'm|my|mine|myself)\b/gi;
 
 /**
  * Numbers that mean something was measured: a quantity, a percentage, a duration, a currency.
  *
- * Bare digits are deliberately NOT counted. "Team of 3" is a measurement; a stray "2024" or a
+ * Bare digits are NOT counted. "Team of 3" is a measurement; a stray "2024" or a
  * version number is not, and counting every integer made the signal fire on almost anything.
  */
 const QUANTIFIED_RE =
   /(\d[\d,.]*\s*(?:%|percent|x\b|k\b|m\b|bn\b)|(?:\$|€|£|rp|idr)\s*\d[\d,.]*|\b\d[\d,.]*\s*(?:users?|customers?|requests?|qps|rps|ms|s\b|sec|seconds?|minutes?|hours?|days?|weeks?|months?|years?|people|engineers?|teams?|services?|rows?|records?|gb|tb|mb|kb)\b|\b\d+\s*(?:to|-|–)\s*\d+\b)/gi;
 
 /**
- * Past-tense verbs that indicate a concrete action rather than an opinion.
+ * Past-tense verbs that indicate a concrete action.
  *
- * A closed list, and short on purpose. It is not trying to parse English — it is checking that
+ * A closed list, and short on purpose. It is not trying to parse English. It is checking that
  * the answer contains at least one thing the candidate DID, which is the minimum a behavioral
  * answer needs and the thing a purely reflective answer lacks.
  */
@@ -136,7 +125,7 @@ const ACTION_VERBS = [
   "traced", "isolated", "rolled", "ran", "led", "took", "told", "decided", "found", "learned",
 ];
 
-/** Compute the mechanical signals. No model call, no network — pure text analysis. */
+/** Compute the mechanical signals. No model call, no network: pure text analysis. */
 export function extractAnswerSignals(answer: string): AnswerSignals {
   const words = answer.trim().split(/\s+/).filter((w) => w.length > 0).length;
   const firstPerson = (answer.match(FIRST_PERSON_RE) ?? []).length;
@@ -152,9 +141,9 @@ export function extractAnswerSignals(answer: string): AnswerSignals {
  * This is the fallback and the anchor the model's score is checked against. It never returns 4:
  * a mechanical check can establish that the candidate did the thing, not that they did it well.
  *
- * The word-count band is the load-bearing one. An answer under 60 words cannot contain a
- * situation, an action and a result — there is not enough room — so `structure` is capped at 2
- * however well written it is.
+ * The word-count band is the one everything else rests on. An answer under 60 words cannot
+ * contain a situation, an action and a result, so `structure` is capped at 2 however well
+ * written it is.
  */
 export function signalScore(dim: TrackGradeDimension, s: AnswerSignals): number {
   switch (dim) {
@@ -163,8 +152,8 @@ export function signalScore(dim: TrackGradeDimension, s: AnswerSignals): number 
       if (s.words >= 60 && s.actionVerbs >= 1) return 2;
       return 1;
     case "specificity":
-      // Named actions are the cheapest proxy for "a particular event rather than a general
-      // reflection", and length is the second: a specific story needs room to be specific in.
+      // Named actions are the cheapest proxy for a particular event, and length is the second:
+      // a specific story needs room to be specific in.
       if (s.actionVerbs >= 4 && s.words >= 150) return 3;
       if (s.actionVerbs >= 2 && s.words >= 60) return 2;
       return 1;
@@ -185,7 +174,7 @@ export function signalScore(dim: TrackGradeDimension, s: AnswerSignals): number 
  * The ceiling a mechanical cap imposes on a dimension, or 4 for no cap.
  *
  * Separate from `signalScore` because they answer different questions. `signalScore` is what
- * the text alone justifies; a cap is what the text FORBIDS — an answer with no number in it
+ * the text alone justifies; a cap is what the text FORBIDS. An answer with no number in it
  * cannot have demonstrated measurable impact, so `impact` may not exceed 2 no matter what the
  * model says. Both are applied: the model's score is clamped to within one of the signal, and
  * then held at or below the cap.

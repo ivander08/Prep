@@ -1,11 +1,9 @@
 /**
- * Regeneration-loop tests — the path the real model would not exercise.
+ * Regeneration-loop tests: the path the real model would not exercise.
  *
  * The live model refused every adversarial prompt tried, so the code-reveal detector's
- * regeneration branch never fired in practice. That is a good outcome but it leaves the
- * loop unverified: if the model ever *does* leak, this is the code that must catch it.
- *
- * So the client is stubbed here to emit a deliberate leak, and the orchestration is
+ * regeneration branch never fired in practice. If the model ever does leak, this is the code
+ * that must catch it, so the client is stubbed here to emit a leak and the orchestration is
  * asserted directly. Two cases matter:
  *   - one leak  -> regenerate, then return the clean turn
  *   - two leaks -> refuse, and do NOT show the message

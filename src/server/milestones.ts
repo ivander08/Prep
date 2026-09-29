@@ -1,20 +1,14 @@
 /**
- * Milestones — earned-once achievements, verified from the attempt log.
+ * Milestones: earned-once achievements, verified from the attempt log.
  *
- * NO XP AND NO LEVELS, deliberately. Points reward volume, and a four-minute failed attempt
- * earning the same as a clean unaided pass contradicts the rule the rest of this app is built
- * on: everything shown as progress is derived from recorded behaviour, never self-reported.
- * Every milestone below is a fact this app already records, so none can be earned by clicking.
+ * No XP and no levels: points reward volume, and a four-minute failed attempt scoring the same
+ * as a clean unaided pass contradicts the rule the rest of this app is built on, that progress is
+ * derived from recorded behaviour, never self-reported. Only earned rows are stored
+ * (`migrations/013_milestones.sql`); a row's presence IS the award, `earned_at` is when it was
+ * first observed true, and `progress` is recomputed on read, never stored.
  *
- * Only EARNED rows are stored (`migrations/013_milestones.sql`). The definitions are code, like
- * every other catalogue here, so editing a title or a threshold is a source edit and not a
- * migration. A row's presence IS the award; `earned_at` is when the condition was first
- * observed true. There is no `progress` column because progress is recomputed on read.
- *
- * Evaluate-on-read, like `recomputeMastery`: the conditions are cheap aggregate queries, and
- * deriving them means a milestone reached while the server was not running still lands on the
- * next read. Awarding is idempotent — the insert is `ON CONFLICT(id) DO NOTHING` — so a
- * milestone cannot be re-earned or have its date moved.
+ * Evaluate-on-read, like `recomputeMastery`: cheap aggregate queries, so a milestone reached
+ * while the server was down still lands next read; awarding is `ON CONFLICT(id) DO NOTHING`.
  */
 
 import { db } from "./db.ts";
@@ -22,9 +16,9 @@ import { streakStats } from "./streak.ts";
 import { studyStats } from "./mastery.ts";
 
 /**
- * Ten minutes. Deliberately NOT `GRADE_LIMIT_SECONDS` (which is 1200, twenty minutes): the
- * Easy/Good boundary is about whether you needed help, while this milestone is about being
- * fast as well as unaided, so it is a stricter bar and must not be tied to the other one.
+ * Ten minutes. Not `GRADE_LIMIT_SECONDS` (1200, twenty minutes): the Easy/Good boundary is about
+ * whether you needed help, while this milestone is about being fast as well as unaided, so it is
+ * a stricter bar and must not be tied to the other one.
  */
 const HARD_FAST_SECONDS = 600;
 
@@ -38,9 +32,8 @@ export type Milestone = {
 /**
  * The ten milestones, in display order.
  *
- * Every one is a fact this app already records, so none can be earned by clicking. The
- * thresholds are deliberately reachable inside a six-week sprint: a milestone you cannot
- * plausibly reach is decoration.
+ * Every one is a fact this app already records, so none can be earned by clicking. The thresholds
+ * are reachable inside a six-week sprint: a milestone you cannot plausibly reach is decoration.
  */
 export const MILESTONES: Milestone[] = [
   {
@@ -153,11 +146,11 @@ function evaluate(id: string): { met: boolean; progress: string | null } {
     }
 
     case "low-hint-rate": {
-      // `studyStats` counts only attempts that were actually graded (`passed IS NOT NULL`),
-      // which is the right denominator: an abandoned attempt is not evidence either way.
+      // `studyStats` counts only attempts that were actually graded (`passed IS NOT NULL`), which
+      // is the right denominator: an abandoned attempt is not evidence either way.
       //
-      // BOTH parts are shown because the milestone has two conditions and the count alone reads
-      // as satisfied once it passes 50 — the hint rate is usually the part that is not.
+      // Both parts are shown because the milestone has two conditions and the count alone reads as
+      // satisfied once it passes 50; the hint rate is usually the part that is not.
       const s = studyStats();
       const rate = s.attempts > 0 ? s.withHints / s.attempts : 0;
       return {
@@ -193,8 +186,8 @@ function evaluate(id: string): { met: boolean; progress: string | null } {
 }
 
 /**
- * Evaluate every milestone and award any newly-satisfied one, returning all ten in display
- * order with their earned state.
+ * Evaluate every milestone and award any newly-satisfied one, returning all ten in display order
+ * with their earned state.
  */
 export function evaluateMilestones(): MilestoneState[] {
   const earned = new Map(

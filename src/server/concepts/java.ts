@@ -1,22 +1,15 @@
 /**
  * Java exemplars for the pre-DSA fundamentals track.
  *
- * Binding rule: `class Solution` — deliberately NOT public, because the harness writes the
- * file as `Main.java` and only `Main` may be public there. Methods are public and
- * non-static, named exactly as the catalogue's `name`, so the harness can find them by
- * reflection.
- *
- * Signatures are constrained by the harness's argument coercion, which handles only `int`,
- * `long`, `double`, `boolean`, `char`, `String`, `int[]`, `double[]`, `String[]`,
- * `boolean[]` — there is no `int[][]` case. Matrix concepts therefore take a FLAT array plus
- * explicit dimensions, exactly as the catalogue's tests show.
- *
- * `sumAsInt` and `sumRecursive` return `long`: their expected values exceed 2^31, and an
- * `int` accumulator would wrap — which is precisely what those two concepts teach against.
- * `sumRecursive` is written as a loop because Java has no tail-call elimination and the
- * n = 100000 case would otherwise overflow the stack.
+ * `class Solution` is NOT public: the harness writes `Main.java`, where only `Main` may be
+ * public. Methods are public, non-static, named as the catalogue's `name` so reflection finds
+ * them. Coercion handles `int`, `long`, `double`, `boolean`, `char`, `String`, `int[]`,
+ * `double[]`, `String[]`, `boolean[]` and no `int[][]`, so matrix concepts take a FLAT array
+ * plus explicit dimensions, as the catalogue's tests show.
+ * `sumAsInt` and `sumRecursive` return `long`: their expected values exceed 2^31, and an `int`
+ * accumulator would wrap, which those concepts teach against. `sumRecursive` is a loop because
+ * Java has no tail-call elimination and the n = 100000 case would overflow the stack.
  */
-
 export const JAVA: Record<string, { starter: string; solution: string }> = {
   // ---------------------------------------------------------------------------
   // Collections
@@ -349,7 +342,7 @@ export const JAVA: Record<string, { starter: string; solution: string }> = {
         return grid[rows - 1][cols - 1];
     }
 }`,
-    // The scaffold reproduces the aliasing bug — one shared row stored `rows` times — so the
+    // The scaffold reproduces the aliasing bug (one shared row stored `rows` times) so the
     // student has to recognise it, not just fill in the missing assignment.
     starter: `class Solution {
     public int makeGridThenSet(int rows, int cols, int v) {
@@ -435,7 +428,7 @@ export const JAVA: Record<string, { starter: string; solution: string }> = {
   },
 
   bounds: {
-    // The tests order the arguments (rows, cols, r, c) — see [3, 3, 0, 0] -> true.
+    // The tests order the arguments (rows, cols, r, c); see [3, 3, 0, 0] -> true.
     solution: `class Solution {
     public boolean inBounds(int rows, int cols, int r, int c) {
         return r >= 0 && r < rows && c >= 0 && c < cols;

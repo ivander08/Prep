@@ -1,21 +1,14 @@
 /**
- * The code-reveal detector — a deterministic post-check on every draft.
- *
- * The policy core decides what the tutor is *allowed* to say. This checks whether it
- * actually complied. It runs before the student sees anything, and a draft that gives away
- * more than the ceiling permits is rejected and regenerated.
- *
- * Two signals, deliberately conservative:
- *
- *   1. The model's own self-report (`hint_level`, `contains_solution`, `contains_real_code`).
- *      Cheap and usually honest, but it is a claim, not evidence.
- *   2. Structural analysis of the message text — this is the part that matters, because a
- *      model that under-reports its own leak would otherwise pass.
- *
- * The text analysis intentionally over-triggers rather than under-triggers: a false
- * rejection costs one cheap regeneration, while a false acceptance hands over the answer
- * and destroys the exercise. Over-blocking is still treated as a real failure worth
- * measuring — it just isn't the dangerous direction.
+ * The code-reveal detector: a deterministic post-check on every draft.
+ * The policy core decides what the tutor is *allowed* to say; this checks whether it actually
+ * complied, before the student sees anything. A draft that gives away more than the ceiling
+ * permits is rejected and regenerated.
+ * Two signals: the model's own self-report (`hint_level`, `contains_solution`,
+ * `contains_real_code`), cheap and usually honest but a claim, not evidence; and structural
+ * analysis of the message text, which catches an under-reported leak.
+ * The text analysis over-triggers: a false rejection costs one cheap regeneration, a false
+ * acceptance hands over the answer and destroys the exercise. Over-blocking is still a real
+ * failure worth measuring, just not the dangerous direction.
  */
 
 export type Turn = {
@@ -25,17 +18,16 @@ export type Turn = {
   contains_real_code: boolean;
   next_question: string;
   /**
-   * Regions of the STUDENT'S OWN code this hint refers to.
+   * Regions of the student's own code this hint refers to.
    *
-   * Deliberately NOT part of `message`, and deliberately not passed to `detectViolations`.
-   * The detector matches real-code syntax (`def `, `for(`, `return x(`) in the message — a
-   * verbatim quote of the student's own line matches those patterns, so routing `focus`
-   * through the message would make every line-specific hint get rejected as a leak at any
-   * ceiling below H4.
+   * Not part of `message`, and not passed to `detectViolations`. The detector matches
+   * real-code syntax (`def `, `for(`, `return x(`) in the message, and a verbatim quote of the
+   * student's own line matches those patterns, so routing `focus` through the message would
+   * make every line-specific hint get rejected as a leak at any ceiling below H4.
    *
-   * Optional: it is absent at H0/H1 (nothing specific to point at) and at H6 (the point is
-   * the answer, not the student's line), and `validateTurn` normalises a missing value to an
-   * empty array.
+   * Optional: absent at H0/H1 (nothing specific to point at) and at H6 (the answer is the
+   * point, not the student's line). `validateTurn` normalises a missing value to an empty
+   * array.
    */
   focus?: FocusEntry[];
 };
@@ -50,7 +42,7 @@ export type Violation = {
 const CODE_FENCE = /```[\s\S]*?```/;
 
 /**
- * Syntax that only appears in real, runnable code — not in pseudocode or prose.
+ * Syntax that only appears in real, runnable code, not in pseudocode or prose.
  * Pseudocode legitimately uses `for`, `while`, `if`, `return`; what it does not use is
  * `def`, `:=`, `->`, `len(`, or a brace-and-semicolon body.
  */
@@ -82,7 +74,7 @@ function looksLikeSolution(text: string): boolean {
   return false;
 }
 
-/** True when the message contains real, runnable syntax rather than pseudocode. */
+/** True when the message contains real, runnable syntax and not just pseudocode. */
 export function findRealSyntax(text: string): string | null {
   const body = CODE_FENCE.test(text) ? text.replace(/```\w*/g, "") : text;
   for (const { pattern, label } of REAL_SYNTAX) {
@@ -94,18 +86,18 @@ export function findRealSyntax(text: string): string | null {
 /**
  * What the detector is allowed to see.
  *
- * `Omit<Turn, "focus">` rather than `Turn`: the detector must never receive `focus`, and a
- * type that cannot hold it makes that a compile error instead of a convention. The reason is
- * concrete — `findRealSyntax` matches `def `, `for(`, `return x(`, and a verbatim quote of
- * the student's own line matches those patterns, so routing `focus` into the detector would
- * reject every line-specific hint as a leak at any ceiling below H4.
+ * `Omit<Turn, "focus">`, not `Turn`: the detector must never receive `focus`, and a type that
+ * cannot hold it makes that a compile error instead of a convention. The reason is concrete:
+ * `findRealSyntax` matches `def `, `for(`, `return x(`, and a verbatim quote of the student's
+ * own line matches those patterns, so routing `focus` into the detector would reject every
+ * line-specific hint as a leak at any ceiling below H4.
  */
 export type DetectorInput = Omit<Turn, "focus">;
 
 /**
  * Check a draft against the ceiling. Returns every violation found, or an empty array.
  *
- * Note the asymmetry: at H4 pseudocode is permitted, so `for`/`while`/`return` are fine —
+ * Note the asymmetry: at H4 pseudocode is permitted, so `for`/`while`/`return` are fine, and
  * only *real syntax* trips the detector. At H6 nothing is checked.
  */
 export function detectViolations(turn: DetectorInput, ceiling: number): Violation[] {

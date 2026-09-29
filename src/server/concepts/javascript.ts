@@ -1,15 +1,13 @@
 /**
- * JavaScript — pre-DSA language fundamentals.
- *
- * `starter` is the faded scaffold a student is given; `solution` is the exemplar that must
- * pass every case in `catalog.ts`. The harness looks for a BARE top-level function named by
- * the catalogue's canonical name — there is no `class Solution` here, and a class would not
- * be found.
+ * JavaScript: pre-DSA language fundamentals. `starter` is the faded scaffold a student is
+ * given; `solution` is the exemplar that must pass every case in `catalog.ts`. The harness
+ * looks for a BARE top-level function named by the catalogue's canonical name. There is no
+ * `class Solution` here, and a class would not be found.
  *
  * The examples lean on the standard library where the library IS the lesson: `Map`/`Set`,
- * `Array.prototype.sort`, spread, `slice`, `split`/`join`. The one deliberate exception is
- * `heap`: JavaScript has no built-in priority queue, so the exemplar writes the sift-down
- * itself, which is exactly what that concept teaches.
+ * `Array.prototype.sort`, spread, `slice`, `split`/`join`. One exception: `heap`, since
+ * JavaScript has no built-in priority queue, so the exemplar writes the sift-down itself,
+ * which is what that concept teaches.
  */
 
 export const JAVASCRIPT: Record<string, { starter: string; solution: string }> = {
@@ -265,8 +263,8 @@ export const JAVASCRIPT: Record<string, { starter: string; solution: string }> =
   // Matrices
   // ---------------------------------------------------------------------------
   "2d-init": {
-    // The scaffold keeps the ALIASING construction on purpose — the concept is that bug, and a
-    // starter with independent rows lets a student pass by adding the missing set line alone.
+    // The scaffold keeps the ALIASING construction: that bug is the concept, and a starter
+    // with independent rows lets a student pass by adding the missing set line alone.
     starter: `var makeGridThenSet = function(rows, cols, v) {
   // One inner array, referenced rows times.
   const grid = new Array(rows).fill(new Array(cols).fill(0));

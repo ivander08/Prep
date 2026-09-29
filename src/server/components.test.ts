@@ -1,17 +1,12 @@
 /**
  * Executable-component fixtures.
- *
- * The load-bearing test is "every exemplar passes its own tests in every language". That is
- * the only reason shipping 60 generated exercises is defensible: the executor is a
- * deterministic oracle, so a wrong exemplar fails here rather than being taught to a student
- * as the answer.
- *
+ * The main test is "every exemplar passes its own tests in every language": the executor is a
+ * deterministic oracle, so a wrong exemplar fails here instead of being taught to a student as
+ * the answer. That is what makes shipping 60 generated exercises defensible.
  * The other direction matters just as much: a starter that already passes teaches nothing, so
- * every starter is asserted to COMPILE and FAIL. Compile, not merely fail — a starter that
- * does not build reports a compiler error as a "failed test", which is a different and worse
- * thing to hand a student.
- *
- * A language whose runtime is not installed is SKIPPED, not failed, matching
+ * every starter is asserted to compile and fail. Compile, not merely fail: a starter that does
+ * not build reports a compiler error as a "failed test", a worse thing to hand a student.
+ * A language whose runtime is not installed is skipped, not failed, matching
  * `concepts.test.ts` and `runner.test.ts`.
  */
 
@@ -54,7 +49,7 @@ describe("component catalogue", () => {
     const modules = componentModules("python3");
     expect(modules.length).toBeGreaterThan(0);
     // The summary slug carries its language prefix, so it is compared against the prefixed
-    // catalogue rather than the bare one.
+    // catalogue, not the bare one.
     const seen = modules.flatMap((m) => m.components.map((c) => c.slug));
     expect(seen.sort()).toEqual(COMPONENTS.map((c) => `python3/${c.slug}`).sort());
     for (const m of modules) expect(m.components.length).toBeGreaterThan(0);
@@ -98,7 +93,7 @@ describe("component catalogue", () => {
 
   test("every component has a non-trivial op format and prompt", () => {
     // The op encoding is the whole interface, so a component that does not document it is
-    // unsolvable rather than merely hard.
+    // unsolvable, not merely hard.
     for (const spec of COMPONENTS) {
       expect(spec.opFormat.length).toBeGreaterThan(20);
       expect(spec.promptMd.length).toBeGreaterThan(40);

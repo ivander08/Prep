@@ -1,10 +1,10 @@
 /**
- * Pattern reference cards — the runtime.
+ * Pattern reference cards: the runtime.
  *
  * The catalogue is static prose; the only thing computed here is which problems to drill the
- * pattern with. That list is derived from the database rather than written into the catalogue
- * so it cannot go stale against the problem set: a card that hard-coded three slugs would
- * start recommending problems the user already solved, and would break entirely on a re-ingest.
+ * pattern with. That list comes from the database so it cannot go stale against the problem set:
+ * a card that hard-coded three slugs would start recommending problems the user already solved,
+ * and would break entirely on a re-ingest.
  *
  * No code execution is involved, so unlike `concepts.ts` there is no `metaFor`/`inferType` here.
  */
@@ -28,10 +28,9 @@ type DrillRow = { slug: string; title: string; difficulty: string };
 /**
  * The problems to drill a pattern with, in roadmap order.
  *
- * Unsolved first, because the useful recommendation is what to do next. When every problem in
- * the pattern is already solved the same query runs without the `NOT EXISTS` clause, so the
- * card offers something to RE-solve rather than an empty list under a heading — a section
- * titled "Drill this pattern" with nothing under it is worse than no section.
+ * Unsolved first, because the useful recommendation is what to do next. When every problem in the
+ * pattern is solved the same query runs without the `NOT EXISTS` clause, so the card offers
+ * something to re-solve instead of an empty list under a "Drill this pattern" heading.
  */
 function recommended(pattern: string, listName: string): DrillRow[] {
   const unsolved = db
@@ -63,8 +62,8 @@ function recommended(pattern: string, listName: string): DrillRow[] {
 /**
  * The card for one pattern, or null when the pattern has no card.
  *
- * Null rather than a throw: the pattern vocabulary is ingested, so a pattern added by a later
- * ingest legitimately has no card yet and the roadmap renders nothing for it.
+ * Null, not a throw: the pattern vocabulary is ingested, so a pattern added by a later ingest
+ * legitimately has no card yet and the roadmap renders nothing for it.
  */
 export function getPatternRefView(pattern: string, listName = "neetcode150"): PatternRefView | null {
   const ref = getPatternRef(pattern);

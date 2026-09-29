@@ -1,22 +1,14 @@
 /**
  * Import full test suites from `newfacade/LeetCodeDataset`.
- *
- * WHY THIS EXISTS
- * LeetCode's GraphQL API exposes only `exampleTestcases` — the 2-3 public examples. A
- * solution that passes locally can still fail LeetCode's hidden tests, and until now the
- * UI had to warn about exactly that. This closes most of the gap.
- *
- * WHAT THE DATASET ACTUALLY CONTAINS (verified by running it, not by reading its README):
- *   - ~2,869 LeetCode problems, one JSON object per line
- *   - 37-144 executable `assert candidate(...) == expected` statements each
- *   - `entry_point` as a dotted path, e.g. `Solution().shortestDistanceAfterQueries`
- *   - a `prompt` block carrying imports and a ListNode/TreeNode prelude
- *   - Apache-2.0
- * Sampling 11 records: every `task_id` joined to our catalog by slug (11/11), and running
- * the dataset's own reference solution against its own tests passed cleanly.
- *
- * IMPORTANT CAVEAT, surfaced in the UI: these are third-party tests. They are a far better
- * proxy than the public examples, but they are not LeetCode's own and not authoritative.
+ * LeetCode's GraphQL API exposes only `exampleTestcases`, the 2-3 public examples, so a
+ * solution that passes locally can still fail LeetCode's hidden tests.
+ * The dataset, verified by running it: ~2,869 problems, one JSON object per line, 37-144
+ * executable `assert candidate(...) == expected` statements each, `entry_point` as a dotted
+ * path (`Solution().shortestDistanceAfterQueries`), a `prompt` block carrying imports and a
+ * ListNode/TreeNode prelude, Apache-2.0. Sampling 11 records: every `task_id` joined to our
+ * catalog by slug (11/11) and the reference solution passed its own tests.
+ * Caveat, shown in the UI: these are third-party tests, a better proxy than the public
+ * examples, but not LeetCode's own and not authoritative.
  */
 
 import { db, migrate, setMeta } from "./db.ts";
@@ -37,9 +29,9 @@ type Record = {
 };
 
 /**
- * The dataset repeats `assert candidate(...)` many times per problem, so a single record
- * can be tens of kilobytes. Records are processed one line at a time and never accumulated
- * — the train split alone is 93.6 MB.
+ * The dataset repeats `assert candidate(...)` many times per problem, so one record can be
+ * tens of kilobytes. Records are streamed one line at a time and never accumulated: the
+ * train split alone is 93.6 MB.
  */
 async function* streamJsonl(url: string): AsyncGenerator<Record> {
   const res = await fetch(url, {
@@ -66,7 +58,7 @@ async function* streamJsonl(url: string): AsyncGenerator<Record> {
         try {
           yield JSON.parse(line) as Record;
         } catch {
-          // A malformed line is skipped rather than aborting a 100 MB import.
+          // A malformed line is skipped; it must not abort a 100 MB import.
         }
       }
       newline = buffer.indexOf("\n");
@@ -123,7 +115,7 @@ export async function ingestFullTests(): Promise<{ imported: number; matched: nu
       imported++;
 
       // Only store tests for problems we actually have, so the table stays joined to the
-      // catalog rather than accumulating dead rows.
+      // catalog and does not accumulate dead rows.
       if (known.has(rec.task_id)) {
         matched++;
         // `input_output` arrives already parsed in most records but as a JSON string in

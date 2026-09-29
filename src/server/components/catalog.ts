@@ -1,30 +1,12 @@
 /**
- * Executable system-design components — the shared catalogue.
+ * Executable system-design components: the shared catalogue.
  *
- * Same shape as `concepts/catalog.ts`: one entry per component, language-independent, holding
- * the contract, the prose and the tests. Per-language code lives in `components/<lang>.ts` and
- * supplies only `starter` and `solution`.
+ * Same shape as `concepts/catalog.ts`: one language-independent entry per component holding the contract, the prose and the tests; `components/<lang>.ts` supplies only `starter` and `solution`.
+ * Every component is `fn(capacity, ops) -> result[]`: components are stateful (an LRU cache needs a sequence of operations, not one call) while `runInLanguage` makes one call per test case, so one call carries the whole operation script and returns the whole output list.
+ * Every argument and return then stays inside the vocabulary the harnesses coerce (`integer`, `integer[]`, `string`, `string[]`, `boolean`), so this track needs no new runner machinery and works in all five languages on the day it lands.
  *
- * WHY EVERY COMPONENT IS `fn(capacity, ops) -> result[]`. The real components here are
- * stateful — an LRU cache is exercised by a sequence of operations, not by one call — and
- * `runInLanguage` makes exactly one function call per test case. Rather than add a per-operation
- * harness to five languages, a component is modelled as ONE call that takes the whole operation
- * script and returns the whole output list. Every argument and return is then drawn from the
- * vocabulary the existing harnesses already coerce (`integer`, `integer[]`, `string`,
- * `string[]`, `boolean`), so this track needs no new runner machinery at all and works in all
- * five languages on the day it lands.
- *
- * THE HASH IS PART OF THE CONTRACT. `consistent-hash` and `bloom-filter` would otherwise be
- * unsatisfiable: their output depends on the hash function, and a student cannot guess which
- * one the tests assume. It is specified in the prompt and in the starter, identically in every
- * language, as a polynomial rolling hash:
- *
- *     h = 0
- *     for each character c:  h = (h * 31 + ord(c)) % 1000003
- *
- * `consistent-hash` deliberately asserts PROPERTIES ("low" remapping, "even" spread) rather
- * than exact node assignments, so any correct ring passes and a naive modulo hash fails — see
- * the note on its tests.
+ * The hash is part of the contract: `consistent-hash` and `bloom-filter` output depends on it and a student cannot guess which function the tests assume. It is specified identically in the prompt and the starter as a polynomial rolling hash, `h = (h * 31 + ord(c)) % 1000003`.
+ * `consistent-hash` asserts PROPERTIES ("low" remapping, "even" spread) instead of exact node assignments, so any correct ring passes and a naive modulo hash fails. See the note on its tests.
  */
 
 export type ComponentModule = "caching" | "rate-limiting" | "coordination" | "storage" | "indexing";
@@ -327,8 +309,8 @@ export const COMPONENTS: ComponentSpec[] = [
     goImports: ["strconv", "strings"],
     tests: [
       // The same case that fixed-window allows entirely: here the fourth request is rejected,
-      // because 0 and 9 are both still inside the window at tick 11 only if within 10 — 0 is
-      // not, 9 is, so t=10 and t=11 are the two that count.
+      // because 0 and 9 are inside the window at tick 11 only if within 10, and 0 is not. So
+      // t=10 and t=11 are the two that count.
       { args: [2, ["t 0", "t 9", "t 10", "t 11"]], expected: [1, 1, 1, 0] },
       { args: [2, ["t 0", "t 0", "t 9", "t 10"]], expected: [1, 1, 0, 1] },
       { args: [1, ["t 0", "t 10", "t 11", "t 21"]], expected: [1, 1, 0, 1] },
@@ -636,7 +618,7 @@ export const COMPONENTS: ComponentSpec[] = [
         args: [100, ["set 1 10", "set 2 20", "get 1", "get 2", "del 1", "get 1"]],
         expected: [10, 20, -1],
       },
-      // capacity 2: three sets push the log to 3 entries, so it compacts — but compaction
+      // capacity 2: three sets push the log to 3 entries, so it compacts, but compaction
       // replaces 3 entries with 3 live keys, so the size is still 3.
       { args: [2, ["set 1 10", "set 2 20", "set 3 30", "logsize"]], expected: [3] },
       { args: [100, ["set 1 10", "del 1", "replay", "get 1"]], expected: [-1] },

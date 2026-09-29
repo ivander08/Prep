@@ -1,23 +1,14 @@
 /**
  * Behavioural scoring for a design round.
  *
- * Scoring reads the transcript and the drafts — both of which are the candidate's own
- * output — and never asks the model to judge quality in the abstract. Two independent things
- * happen here:
- *
- *   1. MECHANICAL SIGNALS, computed in TypeScript with no model call. These are the
- *      observable facts the model's scores are anchored to, and they are what the UI shows
- *      first — so a score can always be traced to something the candidate actually wrote.
- *   2. A MODEL'S SCORES, each of which must quote the candidate. A score with no quote is
+ * Scores come from what the candidate did in the transcript and the drafts, never from the
+ * model's impression of quality. Two independent things happen here:
+ *   1. Mechanical signals, computed in TypeScript with no model call. These are the observable
+ *      facts the model's scores are anchored to, and the UI shows them first, so a score can
+ *      always be traced to something the candidate wrote.
+ *   2. A model's scores, each of which must quote the candidate. A score with no quote is
  *      discarded and the dimension falls back to its signal-derived default, so the model
  *      cannot move a number without pointing at the text that moved it.
- *
- * The dimension names come from the two published rubrics that agree most closely: CoderPad's
- * Problem Framing / Systems Thinking / Communication / Adaptability / Depth on Demand, and
- * Hello Interview's Problem Navigation / Solution Design / Technical Excellence /
- * Communication and Collaboration. Both are scored from what the candidate *did* in the
- * transcript — did they ask before designing, did they quantify, did they name what they were
- * sacrificing — which is the same rule the rest of this app applies to code.
  */
 
 /**
@@ -26,9 +17,8 @@
  * Demand, and Hello Interview's Problem Navigation / Solution Design / Technical Excellence /
  * Communication and Collaboration).
  *
- * Every dimension is scored from OBSERVABLE BEHAVIOUR in the transcript, not from the
- * model's impression: did they ask before designing, did they quantify, did they name what
- * they were giving up. That is the same rule the rest of the app follows for code.
+ * Every dimension is scored from observable behaviour in the transcript: did they ask before
+ * designing, did they quantify, did they name what they were giving up.
  */
 export type RubricDimension =
   | "problemFraming"
@@ -56,9 +46,9 @@ export const DIMENSION_LABEL: Record<RubricDimension, string> = {
 /**
  * The 1-4 scale the published rubrics use, where 3 is "meets expectations".
  *
- * 1-4 rather than 0-100 because the sources agree on four levels and the grader's job is to
- * place the round in a band, not to invent a percentage. It maps onto the app's FSRS grades
- * in `gradeFromScores`.
+ * 1-4, not 0-100: the sources agree on four levels and the grader's job is to place the round
+ * in a band, not to invent a percentage. It maps onto the app's FSRS grades in
+ * `gradeFromScores`.
  */
 export const SCORE_LABEL: Record<number, string> = {
   1: "Below expectations",
@@ -70,8 +60,8 @@ export const SCORE_LABEL: Record<number, string> = {
 /**
  * Mechanical signals, computed in TypeScript without a model call.
  *
- * These are the observable facts the model's scores are anchored to, and they are what the UI
- * shows first — so a score can always be traced to something the candidate actually wrote.
+ * These are the observable facts the model's scores are anchored to, and the UI shows them
+ * first, so a score can always be traced to something the candidate actually wrote.
  */
 export type Signals = {
   /** True when the requirements draft names at least one functional requirement. */
@@ -98,11 +88,11 @@ export type Signals = {
 };
 
 /**
- * Requirement verbs that mark a functional requirement rather than a wish.
+ * Requirement verbs that mark a functional requirement.
  *
  * Covers the vocabulary of every prompt in the catalogue, not just CRUD. A rate limiter's
  * functional requirement is "limit requests per client", and a word list without `limit` or
- * `enforce` reports that draft as having no functional requirements at all — a false negative
+ * `enforce` reports that draft as having no functional requirements at all, a false negative
  * the UI would then show as a failed signal beside a draft that plainly states them.
  */
 export const REQUIREMENT_WORDS = [
@@ -249,8 +239,8 @@ export const TRADEOFF_PATTERNS: RegExp[] = [
 
 /**
  * Component vocabulary. Broad on purpose: the count is a signal about whether the candidate
- * named the pieces of a system at all, not a check against the prompt's own component list —
- * a candidate who invents a better component should score for it.
+ * named the pieces of a system at all, not a check against the prompt's own component list.
+ * A candidate who invents a better component should score for it.
  */
 export const COMPONENT_WORDS = [
   "load balancer",
@@ -341,9 +331,9 @@ function findEstimates(text: string): string[] {
 /**
  * Compute the mechanical signals from the phase drafts.
  *
- * Drafts rather than the transcript: the drafts are the candidate's own structured output and
- * are where the phases actually live, so a signal that fired from a draft can be shown
- * against the field the candidate typed it into.
+ * Drafts, not the transcript: the drafts are the candidate's own structured output and are
+ * where the phases actually live, so a signal that fired from a draft can be shown against
+ * the field the candidate typed it into.
  */
 export function extractSignals(drafts: Record<string, string>): Signals {
   const requirements = drafts.requirements ?? "";
@@ -418,13 +408,13 @@ export function signalScore(dim: RubricDimension, s: Signals): number {
 /**
  * Map a set of 1-4 dimension scores onto the app's FSRS grades.
  *
- * `Again` is reserved for a dimension at the bottom of the scale, because one dimension at 1
- * means a part of the exercise did not happen at all — that is a fail, not a weak pass. The
- * thresholds are on the average.
+ * `Again` is reserved for a dimension at the bottom of the scale: one dimension at 1 means a
+ * part of the exercise did not happen at all, which is a fail, not a weak pass. The thresholds
+ * are on the average.
  *
- * Takes a plain array rather than a keyed record so the prose tracks (`tracks/grade.ts`) can
- * share the rule: they score four dimensions, the design round scores five, and a second copy
- * of these three lines would be the place the two tracks' grades silently diverged.
+ * Takes a plain array, not a keyed record, so the prose tracks (`tracks/grade.ts`) can share
+ * the rule: they score four dimensions, the design round scores five, and a second copy of
+ * these three lines would be the place the two tracks' grades diverged.
  */
 export function gradeFromValues(values: number[]): 1 | 2 | 3 | 4 {
   if (values.some((v) => v <= 1)) return 1;

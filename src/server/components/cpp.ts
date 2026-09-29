@@ -1,20 +1,14 @@
 /**
- * C++17 — executable system-design components.
- *
- * `starter` compiles and FAILS its tests; `solution` must pass every case in `catalog.ts`.
- * Both are enforced by `components.test.ts` through the real executor.
- *
+ * C++17 executable system-design components. `components.test.ts` runs both through the real
+ * executor: `starter` must compile and fail, `solution` must pass every case in `catalog.ts`.
  * The harness emits `#include <bits/stdc++.h>` and `using namespace std;` ahead of this code
  * and code-generates the call site from the parameter and return types, so nothing here
  * declares an include. Every component takes `int` and `vector<string>` and returns
- * `vector<int>` or `vector<string>`, which are the types `cppUnpack` and `cppCompare` handle.
- *
+ * `vector<int>` or `vector<string>`, the types `cppUnpack` and `cppCompare` handle.
  * `snowflake-id` uses `long long`: `(t << 22)` exceeds 2^31 for any plausible clock, and a
- * 32-bit shift would silently wrap. The return is a decimal `vector<string>` for the same
- * reason.
- *
- * THE HASH IS PART OF THE CONTRACT for `consistent-hash` and `bloom-filter`: both are
- * unsatisfiable without agreeing on it, so it appears identically in all five languages.
+ * 32-bit shift would wrap, so the return is a decimal `vector<string>`.
+ * The hash is part of the contract for `consistent-hash` and `bloom-filter`: both are
+ * unsatisfiable without agreeing on it, so all five languages carry it identically.
  */
 
 const HASH_DOC = `    // hash(s) = fold over characters: h = (h * 31 + c) % 1000003`;

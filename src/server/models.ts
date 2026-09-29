@@ -1,18 +1,14 @@
 /**
  * Model catalog and role assignment.
  *
- * kenari exposes `GET /v1/models` publicly, so the picker reads live prices rather than a
- * hardcoded table. Two things about that response that are easy to get wrong:
- *
- *   1. Prices are in MICRO-IDR per 1M tokens — Rupiah x 1e6. The docs are explicit:
- *      "balances and prices are stored in micro-Rupiah, which means Rupiah multiplied by
- *      1.000.000". Reading `150000000` as Rp 150/M understates by 1000x; reading it as
- *      Rp 150 billion/M overstates by 1000x. Correct: Rp 150 per 1M tokens.
- *   2. The bare `GET /v1/models` lists CHAT models only. Embedding, rerank, and moderation
- *      models need `?modality=...`.
- *   3. The catalog advertises models the router cannot always serve — 3 of 8 free models
- *      returned `model_not_found` when called. So the picker is a preference, and the
- *      client still walks a fallback chain.
+ * kenari exposes `GET /v1/models` publicly, so the picker reads live prices.
+ *   1. Prices are in micro-IDR per 1M tokens, Rupiah x 1e6. So `150000000` is Rp 150 per 1M, not
+ *      Rp 150/M (understated 1000x) or Rp 150 billion/M (overstated 1000x). The docs are explicit:
+ *      "balances and prices are stored in micro-Rupiah, which means Rupiah multiplied by 1.000.000".
+ *   2. The bare `GET /v1/models` lists chat models only; embedding, rerank and moderation models
+ *      need `?modality=...`.
+ *   3. The catalog advertises models the router cannot always serve: 3 of 8 free models returned
+ *      `model_not_found` when called, so the picker is a preference, not a guarantee.
  */
 
 import { db } from "./db.ts";
