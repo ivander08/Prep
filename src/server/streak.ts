@@ -141,11 +141,17 @@ export function streakStats(now = new Date()): StreakStats {
     calendar.push({ day, count: counts.get(day) ?? 0 });
   }
 
+  // Counted inside the window the calendar actually shows, not over all history. `App.tsx` prints
+  // this number directly beneath the grid, so counting all-time days made it exceed the number of
+  // filled cells — a figure the reader can see is wrong.
+  let activeDays = 0;
+  for (const d of calendar) if (d.count > 0) activeDays++;
+
   return {
     current,
     best,
     todayDone: set.has(today),
     calendar,
-    activeDays: set.size,
+    activeDays,
   };
 }

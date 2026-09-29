@@ -12,6 +12,7 @@
  */
 
 import { db } from "./db.ts";
+import { GRADE_LIMIT_SECONDS } from "./srs.ts";
 
 /** Difficulty seeds. A Hard win is worth more than an Easy win. */
 const DIFFICULTY_RATING: Record<string, number> = {
@@ -57,14 +58,13 @@ export function recomputeMastery(): number {
         hints_used: number;
         solution_unlocked: number;
         seconds: number | null;
-        grade: number | null;
         qid: number;
         started_at: string;
       },
       []
     >(
       `SELECT p.pattern, p.difficulty, a.passed, a.hints_used, a.solution_unlocked,
-              a.seconds, a.grade, a.qid, a.started_at
+              a.seconds, a.qid, a.started_at
        FROM attempts a
        JOIN problems p ON p.qid = a.qid
        WHERE p.pattern IS NOT NULL AND a.passed IS NOT NULL
@@ -82,10 +82,21 @@ export function recomputeMastery(): number {
     const problemElo = DIFFICULTY_RATING[a.difficulty] ?? 1400;
     const expected = expectedScore(s.elo, problemElo);
 
-    // Effective score: 1 for a clean solve, discounted for hints, 0 for a failure.
+    /**
+     * Effective score: 1 for a clean solve, discounted for hints and for a slow solve, 0 for a
+     * failure.
+     *
+     * Time is one of the three inputs beyond pass/fail this module documents, and it was selected
+     * but never read: a 3-minute unaided solve and a 19-minute one produced identical Elo. The
+     * boundary is `GRADE_LIMIT_SECONDS`, the same one `gradeAttempt` uses to separate Easy from
+     * Good, so "solved well inside the limit" means the same thing on both paths. No new threshold.
+     *
+     * `seconds` is nullable, and a null is not evidence of speed, so it does not take the discount.
+     */
+    const slow = a.seconds !== null && a.seconds > GRADE_LIMIT_SECONDS;
     let score: number;
     if (a.passed === 1 && a.solution_unlocked === 0 && a.hints_used === 0) {
-      score = 1;
+      score = slow ? 0.8 : 1;
     } else if (a.passed === 1 && a.solution_unlocked === 0) {
       score = 0.6; // solved, but with help
     } else if (a.passed === 1) {

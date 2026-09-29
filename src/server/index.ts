@@ -1088,7 +1088,15 @@ app.get("/api/progress/history", (c) => {
          SELECT 0 UNION ALL SELECT i + 1 FROM seq WHERE i + 1 < ?
        ),
        weeks AS (
-         SELECT date('now', 'localtime', 'weekday 1', '-' || ((i * 7) + 7) || ' days') AS weekStart
+         -- Start of the week containing today, then back i weeks. SQLite's "weekday 1" modifier
+         -- advances to the NEXT Monday and is a NO-OP when the date already IS Monday, so on Mondays
+         -- every bucket was one week stale and the current week appeared in none of them. Measured:
+         -- 2026-09-28 (Mon) gave weekStart 2026-09-21 while 2026-09-29 (Tue) gave 2026-09-28.
+         --
+         -- strftime %w is 0 for Sunday..6 for Saturday, so (w + 6) % 7 is days since Monday. This
+         -- is the same arithmetic streak.ts uses for its calendar, and it agrees for every weekday.
+         SELECT date('now', 'localtime', '-' || ((CAST(strftime('%w', 'now', 'localtime') AS INTEGER) + 6) % 7) || ' days',
+                     '-' || (i * 7) || ' days') AS weekStart
          FROM seq
        )
        SELECT w.weekStart,

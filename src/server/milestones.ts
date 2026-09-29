@@ -203,11 +203,21 @@ function evaluate(id: string): { met: boolean; progress: string | null } {
     }
 
     case "every-pattern-attempted": {
+      // Counted within the DEFAULT roadmap list, `neetcode150`, which is the list the Roadmap view
+      // opens on. Counting over every problem gave 19 patterns while the user can only see 18, so
+      // the progress read `18/19` with nothing left to attempt: the extra is `JavaScript`, whose 30
+      // problems are in `neetcodeAll` alone and are language-tagged, not a roadmap pattern.
       const touched = scalar(
-        `SELECT COUNT(DISTINCT p.pattern) AS n FROM attempts a JOIN problems p ON p.qid = a.qid
+        `SELECT COUNT(DISTINCT p.pattern) AS n FROM attempts a
+         JOIN problems p ON p.qid = a.qid
+         JOIN lists l ON l.qid = p.qid AND l.name = 'neetcode150'
          WHERE p.pattern IS NOT NULL`,
       );
-      const total = scalar("SELECT COUNT(DISTINCT pattern) AS n FROM problems WHERE pattern IS NOT NULL");
+      const total = scalar(
+        `SELECT COUNT(DISTINCT p.pattern) AS n FROM lists l
+         JOIN problems p ON p.qid = l.qid
+         WHERE l.name = 'neetcode150' AND p.pattern IS NOT NULL`,
+      );
       return { met: total > 0 && touched >= total, progress: `${touched}/${total} patterns` };
     }
 
@@ -217,8 +227,14 @@ function evaluate(id: string): { met: boolean; progress: string | null } {
     }
 
     case "ten-components": {
+      // DISTINCT on the component slug. `components.ts` seeds the item ref as `${lang}/${slug}`,
+      // so `items` holds one row per (language, component) — 12 components across 60 rows. Counting
+      // rows therefore awarded this for passing the same 2 components in all 5 languages, against a
+      // requirement that says "ten DISTINCT system-design components". The ref's first segment is
+      // the language, so the component is everything after the first `/`.
       const n = scalar(
-        `SELECT COUNT(*) AS n FROM items i JOIN item_cards c ON c.item_id = i.id WHERE i.kind = 'component'`,
+        `SELECT COUNT(DISTINCT substr(i.ref, instr(i.ref, '/') + 1)) AS n
+         FROM items i JOIN item_cards c ON c.item_id = i.id WHERE i.kind = 'component'`,
       );
       return { met: n >= 10, progress: `${n}/10 built` };
     }
@@ -288,6 +304,14 @@ function evaluate(id: string): { met: boolean; progress: string | null } {
       // work" means the same thing here as it does on the Overview. The lapse count comes from
       // `attempts.grade = 1` (Again), which is timestamped; `cards.lapses` is a lifetime counter
       // with no per-event date, so it cannot answer "in the last thirty days".
+      //
+      // `passed IS NOT NULL` excludes the tutor's solution unlock, which is written as an attempt
+      // with `grade = 1, passed = NULL, solution_unlocked = 1` (index.ts). Without it, using the
+      // unlock at all inside the window counted as a lapse, so "a clean month" became unearnable
+      // with zero failed attempts. `hundred-solved` and `low-hint-rate` already filter this way.
+      //
+      // The window is `-29 days` inclusive of today, not `-30`: `>= date('now','-30 days')` is a
+      // 31-day span, so the progress string could read `31/30 days`.
       const days = scalar(
         `SELECT COUNT(*) AS n FROM (
            SELECT DISTINCT date(last_review, 'localtime') AS day FROM cards
@@ -296,11 +320,12 @@ function evaluate(id: string): { met: boolean; progress: string | null } {
            SELECT DISTINCT date(last_review, 'localtime') FROM item_cards
              WHERE last_review IS NOT NULL
          )
-         WHERE day >= date('now', 'localtime', '-30 days')`,
+         WHERE day >= date('now', 'localtime', '-29 days')`,
       );
       const lapses = scalar(
         `SELECT COUNT(*) AS n FROM attempts
-         WHERE grade = 1 AND date(ended_at, 'localtime') >= date('now', 'localtime', '-30 days')`,
+         WHERE grade = 1 AND passed IS NOT NULL
+           AND date(ended_at, 'localtime') >= date('now', 'localtime', '-29 days')`,
       );
       return {
         met: days >= 30 && lapses === 0,
