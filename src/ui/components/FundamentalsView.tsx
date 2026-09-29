@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, GRADE_LABEL, type ConceptDetail, type ConceptRunResponse, type ConceptSummary, type ConceptModule } from "../api";
 import { CodeEditor, AssistPicker, type AssistLevel } from "./CodeEditor";
 import { Stopwatch, useStopwatchVisible } from "./Stopwatch";
@@ -43,6 +43,12 @@ export function FundamentalsView({
   });
   const [data, setData] = useState<ModulesResponse | null>(null);
   const [activeSlug, setActiveSlug] = useState<string | null>(null);
+  /**
+   * The current selection, readable from an async callback without re-creating it. `onRun` drops a
+   * response whose item is no longer selected: switching items does not remount this view, so a
+   * run started on A and finishing after a click on B rendered A's cases under B's title.
+   */
+  const activeSlugRef = useRef<string | null>(null);
   const [concept, setConcept] = useState<ConceptDetail | null>(null);
   const [code, setCode] = useState("");
   const [run, setRun] = useState<ConceptRunResponse | null>(null);
@@ -85,6 +91,7 @@ export function FundamentalsView({
   }, [lang, loadList]);
 
   useEffect(() => {
+    activeSlugRef.current = activeSlug;
     if (!activeSlug) return;
     let cancelled = false;
     setConcept(null);
@@ -107,17 +114,19 @@ export function FundamentalsView({
 
   const onRun = useCallback(async () => {
     if (!concept || busy) return;
+    const forSlug = concept.slug;
     setBusy(true);
     setError(null);
     try {
       const r = await api<ConceptRunResponse>("/api/concepts/run", {
         method: "POST",
         body: JSON.stringify({
-          slug: concept.slug,
+          slug: forSlug,
           code,
           seconds: (Date.now() - startedAt) / 1000,
         }),
       });
+      if (forSlug !== activeSlugRef.current) return;
       setRun(r);
       if (r.accepted) {
         // The pass marker in the list comes from the server, so re-read instead of guessing
@@ -207,9 +216,9 @@ export function FundamentalsView({
         </div>
 
         <div className="pane">
-          {!concept ? (
+          {!concept && !error ? (
             <div className="spinner">Loading concept…</div>
-          ) : (
+          ) : !concept ? null : (
             <>
               <h2 style={{ marginTop: 0 }}>{concept.title}</h2>
 

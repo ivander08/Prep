@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { Row } from "./Row";
 
@@ -26,28 +26,46 @@ export function CompaniesView({ onOpen }: { onOpen: (slug: string) => void }) {
   const [companies, setCompanies] = useState<CompanyRow[]>([]);
   const [active, setActive] = useState<string | null>(null);
   const [problems, setProblems] = useState<CompanyProblem[]>([]);
-  const [error, setError] = useState<string | null>(null);
+  /** Failure of the PROBLEM list only. The company list must survive it, so it is not a full-page
+   * return: a failed company load used to replace the whole view, list included, leaving nothing to
+   * click and no way back. */
+  const [problemsError, setProblemsError] = useState<string | null>(null);
+  const [companiesError, setCompaniesError] = useState<string | null>(null);
+  const [loadingProblems, setLoadingProblems] = useState(false);
+  /**
+   * Guards against an out-of-order response. Two rapid clicks issued two requests, and whichever
+   * finished last won: A-then-B could leave A's list under B's header. The generation is bumped per
+   * request, and a response whose generation is stale is dropped.
+   */
+  const generation = useRef(0);
   const [filter, setFilter] = useState("");
 
   const loadCompanies = useCallback(async () => {
     try {
       const r = await api<{ companies: CompanyRow[] }>("/api/companies");
       setCompanies(r.companies);
-      setError(null);
+      setCompaniesError(null);
     } catch (e) {
-      setError(String(e));
+      setCompaniesError(String(e));
     }
   }, []);
 
   const loadProblems = useCallback(async (company: string) => {
+    const mine = ++generation.current;
+    setLoadingProblems(true);
+    setProblemsError(null);
     try {
       const r = await api<{ problems: CompanyProblem[] }>(
         `/api/companies/${encodeURIComponent(company)}/problems?limit=80`,
       );
+      if (mine !== generation.current) return;
       setProblems(r.problems);
       setActive(company);
     } catch (e) {
-      setError(String(e));
+      if (mine !== generation.current) return;
+      setProblemsError(String(e));
+    } finally {
+      if (mine === generation.current) setLoadingProblems(false);
     }
   }, []);
 
@@ -55,7 +73,7 @@ export function CompaniesView({ onOpen }: { onOpen: (slug: string) => void }) {
     void loadCompanies();
   }, [loadCompanies]);
 
-  if (error) return <div className="notice bad">{error}</div>;
+  if (companiesError) return <div className="notice bad">{companiesError}</div>;
 
   if (companies.length === 0) {
     return (
@@ -94,6 +112,7 @@ export function CompaniesView({ onOpen }: { onOpen: (slug: string) => void }) {
               <button
                 key={c.company}
                 className={`company-item${active === c.company ? " active" : ""}`}
+                disabled={loadingProblems}
                 onClick={() => void loadProblems(c.company)}
               >
                 <span>{c.company}</span>
@@ -104,6 +123,9 @@ export function CompaniesView({ onOpen }: { onOpen: (slug: string) => void }) {
         </div>
 
         <div className="company-problems">
+          {problemsError ? (
+            <div className="notice bad" style={{ marginBottom: 12 }}>{problemsError}</div>
+          ) : null}
           {active ? (
             <>
               <h2>{active}</h2>

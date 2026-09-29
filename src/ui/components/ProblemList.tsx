@@ -130,7 +130,6 @@ export function ProblemList({ listName, onOpen }: { listName: string; onOpen: (s
       return true;
     });
 
-    const dir = sort === "title" ? 1 : 1;
     out.sort((a, b) => {
       switch (sort) {
         case "difficulty":
@@ -138,7 +137,7 @@ export function ProblemList({ listName, onOpen }: { listName: string; onOpen: (s
         case "acceptance":
           return (b.acRate ?? 0) - (a.acRate ?? 0);
         case "title":
-          return a.title.localeCompare(b.title) * dir;
+          return a.title.localeCompare(b.title);
         case "attempts":
           return b.attempts - a.attempts;
         default:

@@ -1,6 +1,25 @@
 import { useEffect, type ReactNode } from "react";
 
 /**
+ * How many dialogs are currently mounted.
+ *
+ * The `g`-chord handler in `App` bails while this is non-zero. It cannot detect a dialog by
+ * looking at focus: `typingTarget(document.activeElement)` is false for a focused BUTTON, and this
+ * component focuses the confirm button on purpose, so `g b` navigated away and unmounted the dialog
+ * mid-confirmation. Counting mounts is the direct question — "is a modal open" — rather than a
+ * proxy for it.
+ *
+ * A module-level counter rather than a context: the only reader is one global key handler, and
+ * threading a provider through every call site would be more machinery than the guard is worth.
+ */
+let openDialogs = 0;
+
+/** True while at least one `Dialog` is mounted. */
+export function anyDialogOpen(): boolean {
+  return openDialogs > 0;
+}
+
+/**
  * A modal panel.
  *
  * Replaces the two native dialogs the app used: `window.prompt` for a sketch label and
@@ -33,6 +52,13 @@ export function Dialog({
   onConfirm: () => void;
   onCancel: () => void;
 }): React.JSX.Element {
+  useEffect(() => {
+    openDialogs++;
+    return () => {
+      openDialogs--;
+    };
+  }, []);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onCancel();

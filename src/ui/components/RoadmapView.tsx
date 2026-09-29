@@ -243,7 +243,15 @@ export function RoadmapView({ onOpen }: { onOpen: (slug: string) => void }) {
                     </button>
                   ) : null}
 
-                  {cardIsOpen ? (
+                  {/*
+                    Gated on `!noCard` as well as `cardIsOpen`. `loadRef` marks a confirmed absence
+                    as `refs[pattern] = null`, and `null` is falsy, so the pending branch below would
+                    render "Loading card…" forever for a pattern with no reference card — with the
+                    toggle already hidden, leaving no way to close it. Latent today: all 19 patterns
+                    return a card, and `reference.ts` documents a missing card as legitimate, so this
+                    becomes reachable as soon as an ingest adds a pattern without one.
+                  */}
+                  {cardIsOpen && !noCard ? (
                     refErrors[p.pattern] ? (
                       <div className="pattern-ref muted small">
                         Card unavailable —{" "}

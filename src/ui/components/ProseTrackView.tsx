@@ -215,6 +215,9 @@ export function ProseTrackView({
                   <Row
                     key={p.slug}
                     className={p.slug === activeSlug ? "active" : ""}
+                    // Disabled while `busy`: `start` is async, so a double-click issued two
+                    // session-creation requests before the first resolved.
+                    disabled={busy}
                     onClick={() => void start(p.slug)}
                   >
                     <span className="qid">·</span>

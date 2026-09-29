@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   api,
   GRADE_LABEL,
@@ -74,6 +74,14 @@ export function SqlView({
 }) {
   const [data, setData] = useState<SqlProblemList | null>(null);
   const [activeSlug, setActiveSlug] = useState<string | null>(null);
+  /**
+   * The current selection, readable from an async callback without re-creating it.
+   *
+   * `onRun` captures the slug it ran against and drops the response if the selection moved on. A
+   * dependency on `activeSlug` would rebuild the callback mid-flight instead, which is the thing
+   * being guarded against.
+   */
+  const activeSlugRef = useRef<string | null>(null);
   const [problem, setProblem] = useState<SqlProblemDetail | null>(null);
   const [code, setCode] = useState(STARTER);
   const [run, setRun] = useState<SqlRunResponse | null>(null);
@@ -109,6 +117,7 @@ export function SqlView({
   }, [loadList]);
 
   useEffect(() => {
+    activeSlugRef.current = activeSlug;
     if (!activeSlug) return;
     let cancelled = false;
     setProblem(null);
@@ -131,17 +140,22 @@ export function SqlView({
 
   const onRun = useCallback(async () => {
     if (!problem || busy) return;
+    // Captured at call time. Switching problems does not remount this view, so a response that
+    // arrives after the switch would otherwise land under the new problem's title: run A, click B
+    // while in flight, and A's rows render under B. The same guard the detail effect uses below.
+    const forSlug = problem.slug;
     setBusy(true);
     setError(null);
     try {
       const r = await api<SqlRunResponse>("/api/sql/run", {
         method: "POST",
         body: JSON.stringify({
-          slug: problem.slug,
+          slug: forSlug,
           query: code,
           seconds: (Date.now() - startedAt) / 1000,
         }),
       });
+      if (forSlug !== activeSlugRef.current) return;
       setRun(r);
       if (r.passed) {
         // The solved marker comes from the server, so re-read instead of guessing locally: the
@@ -239,9 +253,9 @@ export function SqlView({
         </div>
 
         <div className="pane">
-          {!problem ? (
+          {!problem && !error ? (
             <div className="spinner">Loading problem…</div>
-          ) : (
+          ) : !problem ? null : (
             <>
               <h2 style={{ marginTop: 0 }}>{problem.title}</h2>
 

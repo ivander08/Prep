@@ -17,6 +17,7 @@ import { SqlView } from "./components/SqlView";
 import { TipsPanel } from "./components/TipsPanel";
 import { Row } from "./components/Row";
 import { ProseTrackView } from "./components/ProseTrackView";
+import { anyDialogOpen } from "./components/Dialog";
 import { NAV_SHORTCUTS, typingTarget } from "./shortcuts";
 // Imported, not referenced by URL: Vite rewrites the path to the hashed filename at build time,
 // so a literal `/assets/logo.svg` would 404 in production. The favicon in `index.html` is
@@ -124,6 +125,10 @@ function useNavShortcuts(open: (view: View) => void): void {
     const onKey = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (typingTarget(document.activeElement)) return;
+      // A modal owns the keyboard. The confirm button is focused by design, so `typingTarget` is
+      // false for it and the chord fired anyway — navigating away and unmounting the dialog
+      // mid-confirmation. See `anyDialogOpen` in `Dialog.tsx`.
+      if (anyDialogOpen()) return;
 
       if (e.key === "g") {
         pending = Date.now();
@@ -203,6 +208,10 @@ export function App() {
 
   const refreshLists = useCallback(async () => {
     try {
+      // Cleared on entry, so a failure that a later poll recovers from does not leave the banner
+      // up forever. Nothing in `App` ever called `setError(null)`, so one transient failure pinned
+      // the message to the top of the screen for the rest of the session.
+      setError(null);
       const r = await api<{ lists: ListSummary[]; catalog: number }>("/api/lists");
       setLists(r.lists);
       setCatalog(r.catalog);
@@ -213,6 +222,7 @@ export function App() {
 
   const loadDue = useCallback(async () => {
     try {
+      setError(null);
       const r = await api<{ due: DueTrackItem[] }>("/api/review?limit=40");
       setDue(r.due);
     } catch (e) {
@@ -749,7 +759,18 @@ function ProblemView({ slug, onBack }: { slug: string; onBack: () => void }) {
   const [run, setRun] = useState<RunResponse | null>(null);
   const [attempt, setAttempt] = useState<AttemptResponse | null>(null);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  /**
+   * Two error channels, deliberately separate.
+   *
+   * `loadError` means the problem could not be fetched, so there is genuinely nothing to show and
+   * a full-page message is right. `runError` means a run failed while the problem is loaded: it is
+   * rendered inside the run panel so the statement, the hints and the editor stay on screen. One
+   * shared `error` put both behind a full-page early return, so a 500 from `/api/run` replaced the
+   * whole workspace — and since `setError(null)` only ran at the START of the next run, the Run
+   * button no longer existed to start one. The only way out was to navigate away.
+   */
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [runError, setRunError] = useState<string | null>(null);
   /** A 422 from /api/run: the problem cannot be graded here. Not the student's failure. */
   const [notGradeable, setNotGradeable] = useState<{ message: string; className: string | null } | null>(null);
   const [hintsUsed, setHintsUsed] = useState(0);
@@ -790,6 +811,8 @@ function ProblemView({ slug, onBack }: { slug: string; onBack: () => void }) {
     setRun(null);
     setAttempt(null);
     setNotGradeable(null);
+    setLoadError(null);
+    setRunError(null);
     setHintsUsed(0);
     setFocus(null);
     startedAt.current = Date.now();
@@ -801,7 +824,7 @@ function ProblemView({ slug, onBack }: { slug: string; onBack: () => void }) {
       .catch(() => {});
 
     loadProblem({ resetTimers: false, cancelled: () => cancelled }).catch(
-      (e) => !cancelled && setError(String(e)),
+      (e) => !cancelled && setLoadError(String(e)),
     );
 
     return () => {
@@ -851,7 +874,7 @@ function ProblemView({ slug, onBack }: { slug: string; onBack: () => void }) {
   const onRun = useCallback(async () => {
     if (!problem || busy) return;
     setBusy(true);
-    setError(null);
+    setRunError(null);
     setNotGradeable(null);
     try {
       const r = await api<RunResponse>("/api/run", {
@@ -895,19 +918,20 @@ function ProblemView({ slug, onBack }: { slug: string; onBack: () => void }) {
         const b = e.body as { designProblem?: boolean; className?: string; error?: string };
         setNotGradeable({ message: b.error ?? e.message, className: b.className ?? null });
       } else {
-        setError(String(e));
+        // Inline, so the statement and the editor survive and Run stays clickable.
+        setRunError(String(e));
       }
     } finally {
       setBusy(false);
     }
   }, [problem, code, busy, hintsUsed, language]);
 
-  if (error) {
+  if (loadError) {
     return (
       <div className="layout full">
         <main className="main">
           <button onClick={onBack}>← Back</button>
-          <div className="notice bad" style={{ marginTop: 16 }}>{error}</div>
+          <div className="notice bad" style={{ marginTop: 16 }}>{loadError}</div>
         </main>
       </div>
     );
@@ -953,7 +977,12 @@ function ProblemView({ slug, onBack }: { slug: string; onBack: () => void }) {
               {problem.premiumLocked ? (
                 <PremiumStatement
                   slug={problem.slug}
-                  onSaved={() => void loadProblem({ resetTimers: false })}
+                  onSaved={() =>
+                    // Caught, like every other call site. `void` alone left a rejection unhandled,
+                    // so a failed re-fetch after saving a statement surfaced as an unhandled
+                    // rejection in the console and nothing on screen.
+                    void loadProblem({ resetTimers: false }).catch((e) => setLoadError(String(e)))
+                  }
                 />
               ) : (
                 <Markdown md={problem.statementMd} />
@@ -1025,6 +1054,13 @@ function ProblemView({ slug, onBack }: { slug: string; onBack: () => void }) {
                   {notGradeable.className ? "Design problem — not graded here" : "Cannot be graded here"}
                 </strong>
                 {notGradeable.message}
+              </div>
+            ) : null}
+
+            {runError ? (
+              <div className="notice bad" style={{ marginTop: 12 }}>
+                <strong style={{ display: "block", marginBottom: 4 }}>The run failed</strong>
+                {runError}
               </div>
             ) : null}
 

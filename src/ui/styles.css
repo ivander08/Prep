@@ -454,6 +454,13 @@ h2 {
 }
 .stopwatch.over .limit { color: var(--signal-dim); }
 
+/*
+ * A bare `.over` marks any readout past its budget, not just the stopwatch. `DesignView` puts it
+ * on the per-phase clock, and without this rule that class matched nothing, so an over-budget phase
+ * rendered identically to one that was on time.
+ */
+.over { color: var(--signal); }
+
 /* --- Readout — narrow ---------------------------------------------------- */
 
 @media (max-width: 640px) {

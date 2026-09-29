@@ -17,14 +17,27 @@ export function Row({
   onClick,
   children,
   title,
+  disabled = false,
 }: {
   className?: string;
   onClick: () => void;
   children: ReactNode;
   title?: string;
+  /**
+   * Renders the real `disabled` attribute, so the row is inert for the keyboard too, not merely
+   * styled as unavailable. Used while a list is loading, where a second click would issue a second
+   * request before the first resolved.
+   */
+  disabled?: boolean;
 }) {
   return (
-    <button type="button" className={`problem-row ${className}`.trim()} onClick={onClick} title={title}>
+    <button
+      type="button"
+      className={`problem-row ${className}`.trim()}
+      onClick={onClick}
+      title={title}
+      disabled={disabled}
+    >
       {children}
     </button>
   );

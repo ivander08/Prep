@@ -289,6 +289,16 @@ export function DesignView({
     [start],
   );
 
+  /**
+   * The most recent draft write, so `finish` can await it.
+   *
+   * `saveDraft` is fired on blur without awaiting, and `finish` posted independently while the
+   * server grades from the STORED drafts. If `finish` won the race the round was graded without the
+   * phase just written. `ProseTrackView` already awaits its `saveAnswer` first; this is the same
+   * shape.
+   */
+  const pendingSave = useRef<Promise<void> | null>(null);
+
   const saveDraft = useCallback(
     async (phase: DesignPhase, text: string) => {
       if (!session) return;
@@ -298,17 +308,21 @@ export function DesignView({
       const merged = { ...drafts, [phase]: text };
       setDrafts(merged);
 
-      try {
-        await api(`/api/design/${session.id}/draft`, {
-          method: "POST",
-          body: JSON.stringify({ phase, text }),
-        });
-        // The server derives the phase from the drafts too, but this mirrors it locally so the
-        // strip updates on blur, not on the next round trip.
-        setSession((s) => (s ? { ...s, phase: nextPhaseFrom(merged), drafts: merged } : s));
-      } catch (e) {
-        setError(String(e));
-      }
+      const write = (async () => {
+        try {
+          await api(`/api/design/${session.id}/draft`, {
+            method: "POST",
+            body: JSON.stringify({ phase, text }),
+          });
+          // The server derives the phase from the drafts too, but this mirrors it locally so the
+          // strip updates on blur, not on the next round trip.
+          setSession((s) => (s ? { ...s, phase: nextPhaseFrom(merged), drafts: merged } : s));
+        } catch (e) {
+          setError(String(e));
+        }
+      })();
+      pendingSave.current = write;
+      await write;
     },
     [session, drafts],
   );
@@ -358,6 +372,10 @@ export function DesignView({
     setFinishing(true);
     setError(null);
     try {
+      // Flush any draft still in flight before asking the server to grade. Without this the
+      // server graded from the drafts it already had, and the phase the candidate had just typed
+      // was missing from the score.
+      await pendingSave.current;
       const r = await api<DesignScores>(`/api/design/${session.id}/finish`, { method: "POST" });
       setScores(r);
       setSession((s) => (s ? { ...s, endedAt: new Date().toISOString() } : s));
@@ -444,6 +462,7 @@ export function DesignView({
           groups={groups}
           conceptSlug={conceptSlug}
           concept={concept}
+          error={error}
           onSelect={setConceptSlug}
           onOpenPrompt={openPrompt}
         />
@@ -459,6 +478,9 @@ export function DesignView({
               <Row
                 key={p.slug}
                 className={p.slug === activeSlug ? "active" : ""}
+                // Disabled while `busy`: `start` is async, so a double-click issued two
+                // session-creation requests before the first resolved.
+                disabled={busy}
                 onClick={() => void start(p.slug)}
               >
                 <span className="qid">·</span>
@@ -613,16 +635,21 @@ function ConceptLibrary({
   groups,
   conceptSlug,
   concept,
+  error,
   onSelect,
   onOpenPrompt,
 }: {
   groups: DesignConceptGroups | null;
   conceptSlug: string | null;
   concept: DesignConceptDetail | null;
+  /** Rendered by the parent; passed only so a failed load does not also leave the spinner up. */
+  error: string | null;
   onSelect: (slug: string) => void;
   onOpenPrompt: (slug: string) => void;
 }) {
-  if (!groups) return <div className="spinner">Loading concepts…</div>;
+  // `error` is rendered by the parent, so a failed load must not also leave the spinner up.
+  if (!groups) return error ? null : <div className="spinner">Loading concepts…</div>;
+
 
   return (
     <div className="workspace">
