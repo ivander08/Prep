@@ -102,12 +102,25 @@ describe("component catalogue", () => {
   });
 
   test("the catalogue's own tests are self-consistent", () => {
-    // The expected output length must equal the number of output-producing ops, which is what
-    // the prompt documents. This catches a copy-pasted test whose ops and expected disagree.
+    // The expected output cannot be longer than the ops that produce it: every op appends at most
+    // one value, so a longer `expected` is a copy-pasted test whose ops and expected disagree.
+    // Measured across all 12 components: no test exceeds one expected value per op.
     for (const spec of COMPONENTS) {
       const c = getComponent(`python3/${spec.slug}`)!;
       expect(c.fnName).toBeTruthy();
       expect(c.tests.length).toBeGreaterThanOrEqual(3);
+
+      // Checked on `spec.tests`, which is typed: the DB copy is `unknown[]` by construction and
+      // asserting on it would be asserting the round-trip, not the invariant.
+      for (const [i, t] of spec.tests.entries()) {
+        const ops = t.args[1];
+        expect({
+          slug: spec.slug,
+          case: i,
+          tooMany: t.expected.length > ops.length,
+          emptyOp: ops.some((o) => o.trim().length === 0),
+        }).toEqual({ slug: spec.slug, case: i, tooMany: false, emptyOp: false });
+      }
     }
   });
 

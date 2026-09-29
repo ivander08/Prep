@@ -241,12 +241,43 @@ describe("SQL 50 catalogue", () => {
     expect(notSelect.error).toContain("single SELECT");
   });
 
-  test("the result cap is applied", () => {
-    const p = PROBLEMS.find((x) => x.slug === "recyclable-and-low-fat-products")!;
-    const args = { slug: p.slug, metaJson: p.meta_json!, examples: p.examples!, caseIndex: 0 };
-    const referenceQuery = SQL_SOLUTIONS[p.slug]!;
-    const capped = gradeSql({ ...args, userQuery: "SELECT * FROM Products", referenceQuery, limit: 2 });
-    expect(capped.userRows.length).toBeLessThanOrEqual(MAX_RESULT_ROWS);
+  test("the result cap is a transport limit, not a comparison limit", () => {
+    // A synthetic 250-row table, because no SQL 50 problem returns more than a handful of rows and
+    // the previous version of this test asserted `<= MAX_RESULT_ROWS` against a 5-row table — a
+    // bound that held even with the cap removed entirely, so it could not fail.
+    const size = 250;
+    const examples = JSON.stringify({
+      headers: { t: ["x"] },
+      rows: { t: Array.from({ length: size }, (_, i) => [i]) },
+    });
+    const metaJson = JSON.stringify({ mysql: ["CREATE TABLE t (x INT)"] });
+    const base = { slug: "cap-fixture", metaJson, examples, caseIndex: 0 };
+
+    // The default limit is `MAX_RESULT_ROWS`, so a 250-row result comes back at 200 — and it still
+    // PASSES, because the comparison ran over all 250.
+    const uncapped = gradeSql({ ...base, userQuery: "SELECT x FROM t", referenceQuery: "SELECT x FROM t" });
+    expect(uncapped.userRows).toHaveLength(MAX_RESULT_ROWS);
+    expect(uncapped.passed).toBe(true);
+
+    const capped = gradeSql({ ...base, userQuery: "SELECT x FROM t", referenceQuery: "SELECT x FROM t", limit: 2 });
+    expect(capped.userRows).toHaveLength(2);
+    expect(capped.expectedRows).toHaveLength(2);
+    expect(capped.passed).toBe(true);
+
+    // Order is not part of the contract, so the same multiset in a different order must pass —
+    // and it did not when the cap was applied before the multiset sort, because the two orderings
+    // truncated to two different 2-row subsets.
+    const reversed = gradeSql({
+      ...base,
+      userQuery: "SELECT x FROM t ORDER BY x DESC",
+      referenceQuery: "SELECT x FROM t ORDER BY x ASC",
+      limit: 2,
+    });
+    expect(reversed.passed).toBe(true);
+
+    // A truncating submission is still a genuine failure, so the cap does not blind the grader.
+    const short = gradeSql({ ...base, userQuery: "SELECT x FROM t LIMIT 100", referenceQuery: "SELECT x FROM t" });
+    expect(short.passed).toBe(false);
   });
 
   test("the MySQL DDL normalizer covers every construct in the stored schemas", () => {

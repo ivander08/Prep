@@ -122,7 +122,7 @@ const ACTION_VERBS = [
   "merged", "reduced", "increased", "removed", "introduced", "tested", "measured", "documented",
   "mentored", "reviewed", "asked", "raised", "pushed", "changed", "started", "owned", "drove",
   "negotiated", "traded", "cut", "added", "replaced", "simplified", "automated", "investigated",
-  "traced", "isolated", "rolled", "ran", "led", "took", "told", "decided", "found", "learned",
+  "traced", "isolated", "rolled", "ran", "took", "told", "decided", "found", "learned",
 ];
 
 /** Compute the mechanical signals. No model call, no network: pure text analysis. */

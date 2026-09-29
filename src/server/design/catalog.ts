@@ -78,7 +78,7 @@ export const DESIGN_PROMPTS: DesignPrompt[] = [
       },
       {
         label: "Cache size",
-        value: "~100 GB for the hot 20%",
+        value: "~300 GB, or shard across 3 nodes",
         working: "If 20% of keys take 80% of traffic and a row is ~500 bytes: 0.2 × 3.65e10 × 500 B ≈ 3.6 TB, which is too much — so cache the last N days instead: 20M × 500 B × 30 days ≈ 300 GB, or shard across 3 nodes.",
       },
     ],
@@ -148,17 +148,17 @@ export const DESIGN_PROMPTS: DesignPrompt[] = [
       },
       {
         label: "Storage per year",
-        value: "~2 TB of tweet text, before media",
+        value: "~66 TB of tweet text, before media",
         working: "6e8 tweets/day × 365 = 2.2e11 tweets/year × ~300 bytes (text + ids + metadata) ≈ 66 TB. Text only; media is a separate object store and typically 100x the bytes.",
       },
       {
         label: "Fan-out writes",
-        value: "~175M timeline inserts/s at the extreme",
+        value: "~1.4M timeline inserts/s, 200x the write rate",
         working: "If the average user has 200 followers, 7,000 tweets/s × 200 = 1.4M inserts/s — 200x the tweet write rate. That multiplier IS the fan-out problem: push is cheap to read and expensive to write.",
       },
       {
         label: "Timeline cache size",
-        value: "~150 GB for 800-tweet timelines",
+        value: "~320 GB for 50M active users",
         working: "300M active users × 800 tweet ids × 8 bytes ≈ 1.9 TB of ids alone. Most tools therefore cache only for active users (say 50M) → ~320 GB, sharded across a Redis cluster.",
       },
     ],
@@ -298,7 +298,7 @@ export const DESIGN_PROMPTS: DesignPrompt[] = [
     estimates: [
       {
         label: "Upload volume",
-        value: "~1 PB/day",
+        value: "~1.6 PB/day of source",
         working: "500 hours of video uploaded per minute = 720,000 hours/day. At ~5 Mbps average ≈ 2.25 GB/hour → 720,000 × 2.25 GB ≈ 1.6 PB/day of source. State the bitrate assumption.",
       },
       {
@@ -308,7 +308,7 @@ export const DESIGN_PROMPTS: DesignPrompt[] = [
       },
       {
         label: "Watch QPS",
-        value: "~1-5 million concurrent streams",
+        value: "~40M concurrent before CDN absorption",
         working: "2B daily users × 30 min/day ≈ 1e9 hours/day. Concurrent = 1e9 hours/day / 24 h ≈ 4e7 stream-hours per hour — i.e. ~40M concurrent if a 'stream' is one viewer. Realistically lower after CDN absorption, but the point is that origin servers never see this.",
       },
       {
@@ -388,7 +388,7 @@ export const DESIGN_PROMPTS: DesignPrompt[] = [
       },
       {
         label: "Sync notification volume",
-        value: "~1M notifications/s at peak",
+        value: "~60,000/s, higher after a popular share",
         working: "Each change notifies every device of that user (say 3) and every collaborator (say 2) = 5 notifications. 12,000 uploads/s × 5 = 60,000/s, and a burst after a popular share can be far higher.",
       },
       {
@@ -398,7 +398,7 @@ export const DESIGN_PROMPTS: DesignPrompt[] = [
       },
       {
         label: "Metadata rows",
-        value: "~1e11 rows, tens of TB",
+        value: "~1e11 rows, ~100 TB",
         working: "1B users × 100 files = 1e11 file rows × ~1 KB (name, path, owner, hash, version refs) ≈ 100 TB. That does not fit on one primary, so it is sharded by user — and sharding by user is also what makes the sharing case hard.",
       },
     ],
@@ -459,7 +459,7 @@ export const DESIGN_PROMPTS: DesignPrompt[] = [
     estimates: [
       {
         label: "Concurrent drivers",
-        value: "~1M globally, ~10k in a large city",
+        value: "~1M globally, ~2,000 per city average",
         working: "5M drivers globally, ~20% online at peak = 1M. Per city, 1M / 500 cities ≈ 2,000 average with large cities an order of magnitude above that.",
       },
       {
@@ -469,7 +469,7 @@ export const DESIGN_PROMPTS: DesignPrompt[] = [
       },
       {
         label: "Trip QPS",
-        value: "~350/s globally",
+        value: "~230/s globally, ~700/s at peak",
         working: "20M trips/day / 86,400 ≈ 231/s, ~700/s at 3x peak. Tiny compared with location traffic — a useful contrast to name, because it shows which path deserves the engineering.",
       },
       {
@@ -635,7 +635,7 @@ export const DESIGN_PROMPTS: DesignPrompt[] = [
       },
       {
         label: "Storage",
-        value: "~50 GB/year of notification records",
+        value: "~550 GB/year of notification records",
         working: "50M/day × 365 × ~30 bytes (id, user, channel, status, timestamp) ≈ 550 GB. Small — the log is the record, and the bodies are not stored with it.",
       },
       {
@@ -875,7 +875,7 @@ export const DESIGN_PROMPTS: DesignPrompt[] = [
       },
       {
         label: "Update rate",
-        value: "~1,000/s of new query counts",
+        value: "~12,000/s of raw queries, aggregated",
         working: "1e9 searches/day / 86,400 ≈ 11,600/s of raw queries aggregated into counts. Aggregation is batched, so the index rebuild runs on a schedule rather than per query.",
       },
       {
