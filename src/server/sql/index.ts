@@ -208,29 +208,33 @@ export function runSql(slug: string, query: string, seconds: number): SqlRunResu
   }) as Grade;
 
   const now = new Date();
-  db.run(
-    `INSERT INTO attempts (qid, started_at, ended_at, passed, tests_passed, tests_total,
-                           hints_used, max_hint_level, solution_unlocked, seconds, code, language, grade)
-     VALUES (?, ?, ?, ?, ?, ?, 0, 0, 0, ?, ?, 'sql', ?)`,
-    [
-      row.qid,
-      new Date(now.getTime() - seconds * 1000).toISOString(),
-      now.toISOString(),
-      graded.passed ? 1 : 0,
-      graded.passed ? 1 : 0,
-      1,
-      seconds,
-      query,
-      grade,
-    ],
-  );
+  // The attempt row and the card it schedules are one transaction, so a crash between them cannot
+  // advance the schedule with no record of why. `bun:sqlite` transactions are synchronous.
+  const schedule = db.transaction((): { due: Date; intervalDays: number } | null => {
+    db.run(
+      `INSERT INTO attempts (qid, started_at, ended_at, passed, tests_passed, tests_total,
+                             hints_used, max_hint_level, solution_unlocked, seconds, code, language, grade)
+       VALUES (?, ?, ?, ?, ?, ?, 0, 0, 0, ?, ?, 'sql', ?)`,
+      [
+        row.qid,
+        new Date(now.getTime() - seconds * 1000).toISOString(),
+        now.toISOString(),
+        graded.passed ? 1 : 0,
+        graded.passed ? 1 : 0,
+        1,
+        seconds,
+        query,
+        grade,
+      ],
+    );
 
-  // Scheduled only when the query actually RAN and PRODUCED THE RIGHT ROWS. The previous
-  // condition was `graded.error === null` — "did not error" — so a query that ran cleanly and
-  // returned the wrong rows still created a card. The comment above it said "produced the right
-  // rows" and cited the DSA rule `passed || testsPassed > 0`, which is a pass test, not an
-  // error test.
-  const schedule = graded.passed ? reviewSql(slug, row.title, grade, now) : null;
+    // Scheduled only when the query actually RAN and PRODUCED THE RIGHT ROWS. The previous
+    // condition was `graded.error === null` — "did not error" — so a query that ran cleanly and
+    // returned the wrong rows still created a card. The comment above it said "produced the right
+    // rows" and cited the DSA rule `passed || testsPassed > 0`, which is a pass test, not an
+    // error test.
+    return graded.passed ? reviewSql(slug, row.title, grade, now) : null;
+  })();
 
   return {
     passed: graded.passed,

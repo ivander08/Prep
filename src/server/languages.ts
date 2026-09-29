@@ -53,19 +53,22 @@ export async function detectAvailableLanguages(): Promise<Record<string, boolean
         results[lang.id] = false;
         return;
       }
+      let timer: ReturnType<typeof setTimeout> | undefined;
       try {
         const proc = Bun.spawn([probe, lang.id === "java" ? "-version" : "--version"], {
           stdout: "pipe",
           stderr: "pipe",
         });
-        const timer = setTimeout(() => proc.kill(), 5000);
+        timer = setTimeout(() => proc.kill(), 5000);
         await new Response(proc.stderr).text();
         await new Response(proc.stdout).text();
-        clearTimeout(timer);
         // `java -version` writes to stderr and exits 0; a missing binary throws instead.
         results[lang.id] = true;
       } catch {
         results[lang.id] = false;
+      } finally {
+        // In a `finally`, so a rejected `await` cannot leave the 5 s kill timer armed.
+        clearTimeout(timer);
       }
     }),
   );

@@ -324,8 +324,13 @@ export function recordConcept(
     return { grade, due: null, intervalDays: null };
   }
 
-  const itemId = ensureItem(exercise);
-  const schedule = reviewItem(itemId, grade);
+  // The `items` row and the `item_cards` row are one transaction. `item_cards.item_id` references
+  // `items(id)` with foreign keys on, and a crash between the two would leave an item with no
+  // schedule — or, worse, a schedule advanced with no record of why.
+  const schedule = db.transaction((): { due: Date; intervalDays: number } => {
+    const itemId = ensureItem(exercise);
+    return reviewItem(itemId, grade);
+  })();
   return { grade, due: schedule.due.toISOString(), intervalDays: schedule.intervalDays };
 }
 

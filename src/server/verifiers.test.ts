@@ -91,9 +91,30 @@ describe("verifiers — order-free where it is correct, strict everywhere else",
     expect(v([["a", "b"], ["c"]], [["a", "b", "c"]]).pass).toBe(false);
   });
 
-  test("a problem with a single correct answer has no verifier", () => {
-    // Two Sum returns indices; the answer is unique, so strict equality is correct.
-    expect(verifierFor("two-sum")).toBeNull();
+  test("two-sum accepts either order of the index pair", () => {
+    // The statement says "You can return the answer in any order." Comparing positionally
+    // rejected the same correct pair written the other way round: measured, `[i, j]` scored
+    // 72/72 and `[j, i]` scored 0/72.
+    const v = verifierFor("two-sum")!;
+    expect(v([0, 1], [0, 1]).pass).toBe(true);
+    expect(v([1, 0], [0, 1]).pass).toBe(true);
+  });
+
+  test("two-sum still rejects a different pair", () => {
+    // Loosening the order must not loosen the answer: a false ACCEPT teaches something untrue.
+    const v = verifierFor("two-sum")!;
+    expect(v([0, 2], [0, 1]).pass).toBe(false);
+    expect(v([1, 2], [0, 1]).pass).toBe(false);
+    expect(v([0], [0, 1]).pass).toBe(false);
+    expect(v([0, 1, 2], [0, 1]).pass).toBe(false);
+    expect(v("nonsense", [0, 1]).pass).toBe(false);
+  });
+
+  test("partition-labels is graded in order, because its answer is a sequence", () => {
+    // LeetCode 763 returns partition SIZES in the order the partitions occur:
+    // "ababcbacadefegdehijhklij" -> [9,7,8], and [7,8,9] is wrong. Mapping it to the order-free
+    // verifier sorted both sides and accepted the wrong order.
+    expect(verifierFor("partition-labels")).toBeNull();
   });
 
   test("a verifier never accepts a non-list", () => {
@@ -193,10 +214,44 @@ describe("prepareSuite — case indices must match the harness's own numbering",
     expect(s.skipReasons[0]).toMatch(/expects null/);
   });
 
-  test("a void entry point keeps its null cases, because there null is the real answer", () => {
+  test("a void entry point is reported ungradeable, not graded", () => {
+    // A `void` method is graded on the mutation it leaves in its argument, and the stored suite
+    // records only the return value — `sort-colors` stores `output: "None"` for all 128 cases.
+    // Grading them compared `None` with `None`, so `def sortColors(self, nums): pass` scored
+    // 128/128 accepted. There is no expectation to compare against, so there is nothing to grade.
     const voidMeta = { name: "mutate", params: [{ name: "nums", type: "integer[]" }], return: { type: "void" } };
     const io = JSON.stringify([{ input: "nums = [1]", output: "None" }]);
     const s = prepareSuite("some-void-problem", io, voidMeta);
-    expect(s.cases).toHaveLength(1);
+    expect(s.cases).toHaveLength(0);
+    expect(s.ungradeable).toMatch(/void entry point/);
+  });
+
+  test("a parameter no harness can construct is reported ungradeable", () => {
+    // The suite passes `[4,2,7,1,3,6,9]` where the signature wants a ListNode: Python raises
+    // AttributeError, Java and C++ have no coercion, and Go substitutes nil. Every case failed,
+    // so a correct solution read "0/N wrong answer".
+    const nodeMeta = {
+      name: "reverseList",
+      params: [{ name: "head", type: "ListNode" }],
+      return: { type: "ListNode" },
+    };
+    const io = JSON.stringify([{ input: "head = [1,2,3]", output: "[3,2,1]" }]);
+    const s = prepareSuite("reverse-linked-list", io, nodeMeta);
+    expect(s.cases).toHaveLength(0);
+    expect(s.ungradeable).toMatch(/ListNode/);
+  });
+
+  test("arity is derived from the input when the metadata is absent", () => {
+    // `meta_json` is filled lazily on first open, so 2,851 of the 2,869 problems with a suite have
+    // none. Taking the arity from `meta.params.length ?? 0` rejected every multi-argument case on
+    // those problems: measured, `valid-parentheses` graded 0 of 149 and `two-sum` 0 of 80.
+    const io = JSON.stringify([
+      { input: "nums = [2,7,11,15], target = 9", output: "[0,1]" },
+      { input: "nums = [3,2,4], target = 6", output: "[1,2]" },
+    ]);
+    const s = prepareSuite("two-sum", io, null);
+    expect(s.cases).toHaveLength(2);
+    expect(s.cases[0]!.args).toEqual([[2, 7, 11, 15], 9]);
+    expect(s.skipped).toBe(0);
   });
 });

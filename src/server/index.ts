@@ -19,7 +19,7 @@ import { entryPointName, hasStructuredSuite, runSuiteAnyLanguage } from "./gradi
 import { runInLanguage } from "./runner.ts";
 import { LANGUAGES, detectAvailableLanguages } from "./languages.ts";
 import { dueItems, listProgress, reviewCard, reviewPattern, reviewDesign, gradeAttempt, GRADE_LIMIT_SECONDS } from "./srs.ts";
-import type { Grade } from "ts-fsrs";
+import { Rating, type Grade } from "ts-fsrs";
 import { tutorTurn, reviewAttempt } from "./tutor/index.ts";
 import { hintCeiling, ceilingReason } from "./tutor/policy.ts";
 import { fetchCatalog, allRoleModels, setRoleModel, ROLE_LABEL, ROLES } from "./models.ts";
@@ -111,7 +111,7 @@ app.get("/api/problems/search", (c) => {
   const q = (c.req.query("q") ?? "").trim();
   if (q.length === 0) return c.json({ problems: [], query: "" });
 
-  const limit = Math.min(Number(c.req.query("limit") ?? 50), 200);
+  const limit = queryInt(c.req.query("limit"), 50, 200);
   // `%` and `_` are LIKE wildcards, so a query containing them would turn one character into
   // "anything". Escaped, with `ESCAPE` declared, so they match literally.
   const escaped = q.replace(/[\\%_]/g, (m) => `\\${m}`);
@@ -299,6 +299,19 @@ app.post("/api/problems/:slug/statement", async (c) => {
 // ---------------------------------------------------------------------------
 
 /**
+ * A bounded integer query parameter.
+ *
+ * `Math.min(Number(q ?? N), CAP)` yields `NaN` for `?limit=abc`, and `bun:sqlite` rejects
+ * `LIMIT NaN` with `datatype mismatch`, so the request 500s. A non-finite value falls back to the
+ * default instead. Clamped from below too: `?limit=-1` is a negative LIMIT, which SQLite reads as
+ * "no limit" — not what a caller asking for a bound means.
+ */
+function queryInt(raw: string | undefined, fallback: number, cap: number): number {
+  const n = Number(raw ?? fallback);
+  return Math.min(Math.max(Number.isFinite(n) ? Math.trunc(n) : fallback, 1), cap);
+}
+
+/**
  * A returned value too large to send, replaced by a note.
  *
  * `got` is unbounded: it is whatever the student's code returned, so one wrong answer that
@@ -319,7 +332,10 @@ const cappable = (v: unknown): unknown => {
 };
 
 app.post("/api/run", async (c) => {
-  const body = (await c.req.json()) as { slug: string; code: string; fnName?: string; language?: string };
+  const body = (await c.req.json().catch(() => null)) as { slug?: string; code?: string; fnName?: string; language?: string } | null;
+  if (!body || typeof body.slug !== "string" || typeof body.code !== "string") {
+    return c.json({ error: "body must be JSON with a `slug` and a `code` string" }, 400);
+  }
   const problem = db
     .query<{ meta_json: string | null; statement_md: string | null; examples: string | null }, [string]>(
       "SELECT meta_json, statement_md, examples FROM problems WHERE slug = ?",
@@ -487,57 +503,90 @@ app.post("/api/run", async (c) => {
 // ---------------------------------------------------------------------------
 
 app.post("/api/attempts", async (c) => {
-  const body = (await c.req.json()) as {
-    slug: string;
-    code: string;
-    passed: boolean;
-    testsPassed: number;
-    testsTotal: number;
-    hintsUsed: number;
-    solutionUnlocked: boolean;
-    seconds: number;
+  const body = (await c.req.json().catch(() => null)) as {
+    slug?: string;
+    code?: string;
+    passed?: boolean;
+    testsPassed?: number;
+    testsTotal?: number;
+    hintsUsed?: number;
+    solutionUnlocked?: boolean;
+    seconds?: number;
     language?: string;
-  };
+  } | null;
+
+  if (!body || typeof body.slug !== "string") {
+    return c.json({ error: "body must be JSON with a `slug` string" }, 400);
+  }
+
+  // Validated before use. `seconds` reached `new Date(...).toISOString()`, so a missing or
+  // non-numeric value produced `Invalid time value` out of `toISOString` and a bare 500; and
+  // `hintsUsed` is bound into a NOT NULL column, so omitting it bound `undefined` -> NULL and
+  // failed the constraint. The sibling routes (`/api/sql/run`, `/api/concepts/run`,
+  // `/api/components/run`) already default `seconds` with `?? 0`; this follows that shape.
+  const seconds = Number.isFinite(body.seconds) ? (body.seconds as number) : null;
+  if (seconds === null || seconds < 0) {
+    return c.json({ error: "`seconds` must be a non-negative finite number" }, 400);
+  }
+  const hintsUsed = body.hintsUsed ?? 0;
+  if (!Number.isInteger(hintsUsed) || hintsUsed < 0) {
+    return c.json({ error: "`hintsUsed` must be a non-negative integer" }, 400);
+  }
 
   const problem = db.query<{ qid: number }, [string]>("SELECT qid FROM problems WHERE slug = ?").get(body.slug);
   if (!problem) return c.json({ error: "unknown problem" }, 404);
 
   const grade = gradeAttempt({
-    passed: body.passed,
-    hintsUsed: body.hintsUsed,
-    solutionUnlocked: body.solutionUnlocked,
-    seconds: body.seconds,
+    passed: body.passed === true,
+    hintsUsed,
+    solutionUnlocked: body.solutionUnlocked === true,
+    seconds,
   });
 
   const now = new Date();
-  db.run(
-    `INSERT INTO attempts (qid, started_at, ended_at, passed, tests_passed, tests_total,
-                           hints_used, max_hint_level, solution_unlocked, seconds, code, language, grade)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      problem.qid,
-      new Date(now.getTime() - body.seconds * 1000).toISOString(),
-      now.toISOString(),
-      body.passed ? 1 : 0,
-      body.testsPassed,
-      body.testsTotal,
-      body.hintsUsed,
-      0,
-      body.solutionUnlocked ? 1 : 0,
-      body.seconds,
-      body.code,
-      body.language ?? "python3",
-      grade,
-    ],
-  );
+  const passed = body.passed === true;
+  const testsPassed = Number.isFinite(body.testsPassed) ? (body.testsPassed as number) : 0;
+  const testsTotal = Number.isFinite(body.testsTotal) ? (body.testsTotal as number) : 0;
 
-  // Only schedule a card once the problem has actually been worked on.
-  const schedule = body.passed || body.testsPassed > 0 ? reviewCard(problem.qid, grade, now) : null;
+  /**
+   * The attempt row, the card and the mastery rebuild are one transaction.
+   *
+   * `reviewCard`'s own doc claimed to be "wrapped in a transaction with the attempt row", and it
+   * was not: this handler did three separate writes, so a crash between them advanced the schedule
+   * with no record of why. `bun:sqlite` transactions are synchronous, so `recomputeMastery()` stays
+   * inside and must not `await`.
+   */
+  const schedule = db.transaction((): { due: Date; intervalDays: number } | null => {
+    db.run(
+      `INSERT INTO attempts (qid, started_at, ended_at, passed, tests_passed, tests_total,
+                             hints_used, max_hint_level, solution_unlocked, seconds, code, language, grade)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        problem.qid,
+        new Date(now.getTime() - seconds * 1000).toISOString(),
+        now.toISOString(),
+        passed ? 1 : 0,
+        testsPassed,
+        testsTotal,
+        hintsUsed,
+        0,
+        body.solutionUnlocked === true ? 1 : 0,
+        seconds,
+        body.code ?? "",
+        body.language ?? "python3",
+        grade,
+      ],
+    );
 
-  // Mastery is derived from the attempt log, so it is recomputed, never incremented.
-  // One person's history is small enough that a full rebuild is cheaper than the risk of a
-  // derived table drifting from its source.
-  recomputeMastery();
+    // Only schedule a card once the problem has actually been worked on.
+    const s = passed || testsPassed > 0 ? reviewCard(problem.qid, grade, now) : null;
+
+    // Mastery is derived from the attempt log, so it is recomputed, never incremented.
+    // One person's history is small enough that a full rebuild is cheaper than the risk of a
+    // derived table drifting from its source.
+    recomputeMastery();
+    return s;
+  })();
 
   return c.json({
     grade,
@@ -554,7 +603,7 @@ app.post("/api/attempts", async (c) => {
  * the client which track it belongs to and therefore where clicking it goes.
  */
 app.get("/api/review", (c) => {
-  const limit = Math.min(Number(c.req.query("limit") ?? 40), 200);
+  const limit = queryInt(c.req.query("limit"), 40, 200);
   return c.json({ due: dueItems(limit) });
 });
 
@@ -566,7 +615,10 @@ app.get("/api/review", (c) => {
  * one pattern, and the pattern review is a separate act.
  */
 app.post("/api/review/patterns/:pattern/grade", async (c) => {
-  const pattern = decodeURIComponent(c.req.param("pattern"));
+  // Hono already decodes path params. Decoding again made a literal `%` throw `URIError` and 500;
+  // `Arrays%20%26%20Hashing` arrived as `Arrays & Hashing` from the router and would have been
+  // decoded a second time.
+  const pattern = c.req.param("pattern");
   const body = (await c.req.json().catch(() => ({}))) as { qid?: number };
   if (typeof body.qid !== "number") return c.json({ error: "qid is required" }, 400);
 
@@ -656,29 +708,59 @@ app.post("/api/tutor/:slug/unlock", async (c) => {
   const problem = db.query<{ qid: number }, [string]>("SELECT qid FROM problems WHERE slug = ?").get(slug);
   if (!problem) return c.json({ error: "unknown problem" }, 404);
 
-  const now = new Date().toISOString();
-  db.run(
-    `INSERT INTO attempts (qid, started_at, ended_at, passed, tests_passed, tests_total,
-                           hints_used, max_hint_level, solution_unlocked, seconds, code, language, grade)
-     VALUES (?, ?, ?, NULL, NULL, NULL, 0, 6, 1, NULL, NULL, 'python3', 1)`,
-    [problem.qid, now, now],
-  );
+  const now = new Date();
+  const iso = now.toISOString();
 
-  return c.json({ unlocked: true, ceiling: 6, note: "Unlock recorded. The review grade for this problem is now Again." });
+  /**
+   * The unlock row and the card it claims to have rescheduled are one transaction.
+   *
+   * The response said "The review grade for this problem is now Again" while `reviewCard` was
+   * never called, so no card was created or moved. Recording the attempt and scheduling the card
+   * together is what makes the note true.
+   */
+  const schedule = db.transaction((): { due: Date; intervalDays: number } => {
+    db.run(
+      `INSERT INTO attempts (qid, started_at, ended_at, passed, tests_passed, tests_total,
+                             hints_used, max_hint_level, solution_unlocked, seconds, code, language, grade)
+       VALUES (?, ?, ?, NULL, NULL, NULL, 0, 6, 1, NULL, NULL, 'python3', 1)`,
+      [problem.qid, iso, iso],
+    );
+    const s = reviewCard(problem.qid, Rating.Again, now);
+    recomputeMastery();
+    return s;
+  })();
+
+  return c.json({
+    unlocked: true,
+    ceiling: 6,
+    note: "Unlock recorded. The review grade for this problem is now Again.",
+    nextDue: schedule.due.toISOString(),
+    intervalDays: schedule.intervalDays,
+  });
 });
 
 app.post("/api/tutor/:slug/review", async (c) => {
   const slug = c.req.param("slug");
-  const body = (await c.req.json()) as {
-    code: string;
-    passed: boolean;
-    testsPassed: number;
-    testsTotal: number;
+  const body = (await c.req.json().catch(() => null)) as {
+    code?: string;
+    passed?: boolean;
+    testsPassed?: number;
+    testsTotal?: number;
     stderr?: string;
-  };
+  } | null;
+  if (!body || typeof body.code !== "string") {
+    return c.json({ error: "body must be JSON with a `code` string" }, 400);
+  }
 
   try {
-    const review = await reviewAttempt({ slug, ...body });
+    const review = await reviewAttempt({
+      slug,
+      code: body.code,
+      passed: body.passed === true,
+      testsPassed: Number.isFinite(body.testsPassed) ? (body.testsPassed as number) : 0,
+      testsTotal: Number.isFinite(body.testsTotal) ? (body.testsTotal as number) : 0,
+      stderr: body.stderr,
+    });
     return c.json(review);
   } catch (e) {
     return c.json({ error: e instanceof Error ? e.message : String(e) }, 502);
@@ -1043,7 +1125,7 @@ app.get("/api/models", async (c) => {
 });
 
 app.post("/api/models/roles", async (c) => {
-  const body = (await c.req.json()) as { role?: string; model?: string | null };
+  const body = (await c.req.json().catch(() => ({}))) as { role?: string; model?: string | null };
   if (!body.role || !ROLES.includes(body.role as (typeof ROLES)[number])) {
     return c.json({ error: `role must be one of ${ROLES.join(", ")}` }, 400);
   }
@@ -1085,7 +1167,7 @@ app.get("/api/streak", (c) => c.json(streakStats()));
  * gap look like continuous work.
  */
 app.get("/api/progress/history", (c) => {
-  const count = Math.min(Math.max(Number(c.req.query("weeks") ?? 12), 1), 52);
+  const count = queryInt(c.req.query("weeks"), 12, 52);
 
   const weeks = db
     .query<{ weekStart: string; solved: number; attempts: number; activeDays: number }, [number]>(
@@ -1238,7 +1320,7 @@ app.post("/api/reset", async (c) => {
  */
 app.get("/api/lists/:name/problems", (c) => {
   const name = c.req.param("name");
-  const limit = Math.min(Number(c.req.query("limit") ?? 500), 2000);
+  const limit = queryInt(c.req.query("limit"), 500, 2000);
 
   const rows = db
     .query<
@@ -1363,7 +1445,7 @@ app.get("/api/companies", (c) => {
 
 app.get("/api/companies/:name/problems", (c) => {
   const name = c.req.param("name");
-  const limit = Math.min(Number(c.req.query("limit") ?? 60), 300);
+  const limit = queryInt(c.req.query("limit"), 60, 300);
 
   const rows = db
     .query<

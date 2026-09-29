@@ -94,8 +94,12 @@ function rowToCard(row: CardRow): Card {
 /**
  * Record a review and persist the new schedule. Returns the next due date.
  *
- * Wrapped in a transaction with the attempt row so a crash mid-solve cannot advance the
- * schedule without recording why.
+ * NOT transactional on its own, and it cannot be: the caller owns the surrounding write. Each
+ * caller that pairs this with an attempt row wraps both in one `db.transaction` — `/api/attempts`,
+ * the solution unlock, and the SQL/concept/component/track paths — so a crash mid-solve cannot
+ * advance the schedule without recording why. The comment here used to claim the wrapping was
+ * inside this function, which grep disproved: the only match for "transaction" in this file was
+ * that comment.
  */
 export function reviewCard(qid: number, grade: Grade, now = new Date()): { due: Date; intervalDays: number } {
   const row = db
