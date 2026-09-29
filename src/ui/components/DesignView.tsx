@@ -18,6 +18,7 @@ import {
 import { formatElapsed, isOverLimit, useStopwatchVisible } from "./Stopwatch";
 import { Markdown } from "./Markdown";
 import { SketchPad } from "./SketchPad";
+import { Row } from "./Row";
 
 /**
  * The system-design round.
@@ -436,14 +437,14 @@ export function DesignView({
           </div>
           <div className="table" style={{ border: "none" }}>
             {prompts.map((p) => (
-              <div
+              <Row
                 key={p.slug}
-                className={`problem-row${p.slug === activeSlug ? " active" : ""}`}
+                className={p.slug === activeSlug ? "active" : ""}
                 onClick={() => void start(p.slug)}
               >
                 <span className="qid">·</span>
                 <span className="title">{p.title}</span>
-              </div>
+              </Row>
             ))}
           </div>
         </div>
@@ -499,7 +500,7 @@ export function DesignView({
                 </div>
               ))}
 
-              <div className="row" style={{ marginTop: 14 }}>
+              <div className="row stack-md">
                 <button className="primary" onClick={() => void finish()} disabled={finishing || busy}>
                   {finishing ? "Grading…" : "Finish and grade"}
                 </button>
@@ -615,19 +616,19 @@ function ConceptLibrary({
             </div>
             <div className="table" style={{ border: "none" }}>
               {g.concepts.map((c: DesignConceptSummary) => (
-                <div
+                <Row
                   key={c.slug}
-                  className={`problem-row${c.slug === conceptSlug ? " active" : ""}`}
+                  className={c.slug === conceptSlug ? "active" : ""}
                   onClick={() => onSelect(c.slug)}
                 >
                   <span className="qid">·</span>
                   <span className="title">
                     {c.title}
-                    <span className="muted small" style={{ display: "block" }}>
+                    <span className="muted small sub">
                       {c.summary}
                     </span>
                   </span>
-                </div>
+                </Row>
               ))}
             </div>
           </div>
@@ -804,14 +805,14 @@ function ResultsPanel({
           </p>
           <div className="table">
             {reading.map((c) => (
-              <div key={c.slug} className="problem-row" onClick={() => onOpenConcept(c.slug)}>
+              <Row key={c.slug} onClick={() => onOpenConcept(c.slug)}>
                 <span className="title">
                   {c.title}
-                  <span className="muted small" style={{ display: "block" }}>
+                  <span className="muted small sub">
                     {c.summary}
                   </span>
                 </span>
-              </div>
+              </Row>
             ))}
           </div>
         </>

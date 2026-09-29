@@ -564,4 +564,42 @@ a hosted product and why the repo ships no problem content.
 - **Phase 3.8** — pattern-level review cards, so the schedule matches the mastery data ✅
 - **Phase 4** — system design: the 5-phase timed round with a probe-gated interviewer, rubric
   grading, and 12 executable components on the same prompt ✅
-- **Phase 5** — stack-specific and behavioral tracks
+- **Phase 5** — behavioral and stack tracks: 18 written prompts each, graded against a rubric
+  with verbatim-quote evidence, scheduled through `item_cards` like every other track ✅
+
+## Behavioral and stack tracks
+
+Two prose tracks, in the nav under **Tracks**. Neither runs code, which is the point: the
+behavioral round and the engineering-depth round are both answered in writing and judged on the
+writing.
+
+**Behavioral** — 18 prompts in six groups (ownership, conflict, failure, influence, ambiguity,
+growth). A strong answer is graded on structure, specificity, ownership and impact, where
+ownership means the candidate's own action stated in the first person and impact means an
+outcome that could be observed or measured.
+
+**Stack** — 18 prompts in six groups (language depth, runtime and memory, data, concurrency,
+delivery, debugging). These are questions answerable in prose, not coding tasks: *"Two services
+share a database and one is throwing deadlocks under load. Walk me through how you would
+diagnose it."*
+
+Both share one grader (`tracks/grade.ts`), which reuses the design round's three mechanisms
+rather than growing a second set: a forced tool call with validate-and-repair, verbatim-quote
+validation, and the same grade banding. A score the model cannot quote is discarded and the
+mechanical signal stands in, so the model can shade a score by one point but cannot set it. On
+top of that, three caps the model cannot argue past — an answer under 60 words caps `structure`
+at 2, an answer with no first-person pronoun caps `ownership` at 2, and an answer with no number
+in it caps `impact` at 2. Those caps are what make a thin answer score 1 and therefore not get
+scheduled, while a concrete one scores 3 or 4 and comes back in 15 days.
+
+The mechanical signals are shown to the candidate next to the scores, so a low grade is
+traceable to a fact about the text rather than to a model's opinion of it.
+
+## Hosting and multiplayer
+
+Not built, and the reasons are written up in [`HOSTING.md`](HOSTING.md). In short: the app
+caches LeetCode's statement text, and LeetCode's `robots.txt` disallows `/graphql`, so serving
+that cache to other people is redistribution; and user code runs as a child of the server with
+no sandbox, which is fine for one person on one machine and a remote-code-execution hole with
+two. The report also covers what a reduced, first-party-content-only hosted version would take,
+and the async 1v1 shape that needs neither a sandbox nor a content licence.

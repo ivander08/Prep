@@ -24,6 +24,17 @@ import { listDesignPrompts, getDesignPrompt } from "./design/catalog.ts";
 import { designTurn, gradeDesign, latestOpenSession, loadSession, saveDraft, startDesignSession } from "./design/index.ts";
 import { GROUP_LABEL, GROUP_ORDER, getDesignConcept, listDesignConcepts } from "./design/concepts.ts";
 import { PROBE_FAMILIES } from "./design/policy.ts";
+import {
+  dueProse,
+  finishTrackSession,
+  getTrackPrompt,
+  latestOpenTrackSession,
+  listTrackGroups,
+  loadTrackSession,
+  saveTrackAnswer,
+  startTrackSession,
+  type ProseTrackKind,
+} from "./tracks/index.ts";
 import { getPatternRefView, patternPriorities } from "./reference.ts";
 import { streakStats } from "./streak.ts";
 import { evaluateMilestones } from "./milestones.ts";
@@ -471,10 +482,21 @@ app.post("/api/attempts", async (c) => {
   });
 });
 
+/**
+ * Problems due, plus the prose tracks' due items.
+ *
+ * The prose lists ride along on this endpoint rather than getting one each: the Review view is
+ * the only consumer and it renders all three sections from one fetch, so a second round trip
+ * would exist only to be joined back together in the client.
+ */
 app.get("/api/review", (c) => {
   const list = c.req.query("list") ?? null;
   const limit = Math.min(Number(c.req.query("limit") ?? 20), 100);
-  return c.json({ due: dueQueue(list, limit) });
+  return c.json({
+    due: dueQueue(list, limit),
+    behavioralDue: dueProse("behavioral"),
+    stackDue: dueProse("stack"),
+  });
 });
 
 /** Patterns due for review, each with a representative problem to re-solve. */
@@ -780,6 +802,110 @@ app.post("/api/design/:id/finish", async (c) => {
     return c.json({ error: msg }, msg.startsWith("unknown design session") ? 404 : 502);
   }
 });
+
+// ---------------------------------------------------------------------------
+// Behavioral and stack tracks
+// ---------------------------------------------------------------------------
+
+/**
+ * Registers the six routes for one prose kind. Two kinds, one implementation.
+ *
+ * Route order inside this function is load-bearing and matches the design section's precedent:
+ * `/resume` and `/item` are registered BEFORE `/:id`, because Hono matches in registration
+ * order and a parameter route would otherwise capture them and reject them as a bad id.
+ */
+function registerProseTrack(app: Hono, kind: ProseTrackKind): void {
+  const base = `/api/tracks/${kind}`;
+
+  /** The prompt list, grouped. Summaries only — the answer keys never reach the client. */
+  app.get(base, (c) => {
+    const groups = listTrackGroups(kind);
+    return c.json({ groups, total: groups.reduce((n, g) => n + g.prompts.length, 0) });
+  });
+
+  /**
+   * The attempt still in progress, or null.
+   *
+   * The client calls this on mount so a reload — the one event that would otherwise lose an
+   * unfinished answer — lands back on the work rather than on an empty prompt list.
+   *
+   * Registered BEFORE `/:id`: Hono matches in registration order, so a later literal route
+   * would be captured by the parameter route and rejected as a bad id.
+   */
+  app.get(`${base}/resume`, (c) => c.json({ session: latestOpenTrackSession(kind) }));
+
+  /**
+   * One prompt WITH its answer key.
+   *
+   * The answer key is served here rather than in the list because this is the point at which
+   * the candidate has committed to answering: the list is a menu, and a menu that shipped the
+   * `lookFor` bullets would be the answer key handed out before the question.
+   *
+   * Registered before `/:id` for the same reason `/resume` is.
+   */
+  app.get(`${base}/item`, (c) => {
+    const slug = c.req.query("slug");
+    if (!slug) return c.json({ error: "slug query parameter is required" }, 400);
+    const prompt = getTrackPrompt(kind, slug);
+    if (!prompt) return c.json({ error: "unknown prompt" }, 404);
+    return c.json({ prompt });
+  });
+
+  app.post(`${base}/start`, async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { slug?: string };
+    if (typeof body.slug !== "string") return c.json({ error: "slug is required" }, 400);
+    try {
+      const sessionId = startTrackSession(kind, body.slug);
+      return c.json({ sessionId, session: loadTrackSession(sessionId) });
+    } catch (e) {
+      return c.json({ error: e instanceof Error ? e.message : String(e) }, 404);
+    }
+  });
+
+  /** Persist the answer draft, so a reload does not lose work. */
+  app.post(`${base}/:id/answer`, async (c) => {
+    const id = Number(c.req.param("id"));
+    if (!Number.isInteger(id)) return c.json({ error: "bad id" }, 400);
+    const body = (await c.req.json().catch(() => ({}))) as { answerMd?: string };
+    if (typeof body.answerMd !== "string") return c.json({ error: "answerMd is required" }, 400);
+    try {
+      saveTrackAnswer(id, body.answerMd);
+      return c.json({ ok: true });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return c.json({ error: msg }, msg.startsWith("unknown track session") ? 404 : 400);
+    }
+  });
+
+  /**
+   * Grade the answer and schedule it.
+   *
+   * A 409 for an already-graded session, because the second submission is a real client bug
+   * rather than a transient failure — the row is finished and its grade would be overwritten
+   * by a second, differently-seeded call.
+   *
+   * A grading failure is a 502 and leaves the session UNGRADED, so the answer is intact and can
+   * be resubmitted. The same shape `gradeDesign` uses.
+   */
+  app.post(`${base}/:id/finish`, async (c) => {
+    const id = Number(c.req.param("id"));
+    if (!Number.isInteger(id)) return c.json({ error: "bad id" }, 400);
+    try {
+      return c.json(await finishTrackSession(id));
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      const status = msg.startsWith("unknown track session")
+        ? 404
+        : msg === "session already graded"
+          ? 409
+          : 502;
+      return c.json({ error: msg }, status);
+    }
+  });
+}
+
+registerProseTrack(app, "behavioral");
+registerProseTrack(app, "stack");
 
 // ---------------------------------------------------------------------------
 // Models

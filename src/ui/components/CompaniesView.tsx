@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../api";
+import { Row } from "./Row";
 
 type CompanyRow = { company: string; n: number };
 
@@ -107,11 +108,7 @@ export function CompaniesView({ onOpen }: { onOpen: (slug: string) => void }) {
             <>
               <h2>{active}</h2>
               {problems.map((p) => (
-                <div
-                  key={p.qid}
-                  className={`problem-row${p.solved ? " solved" : ""}`}
-                  onClick={() => onOpen(p.slug)}
-                >
+                <Row key={p.qid} className={p.solved ? "solved" : ""} onClick={() => onOpen(p.slug)}>
                   <span className="qid">{p.qid}</span>
                   <span className="title">
                     {p.title}
@@ -125,7 +122,7 @@ export function CompaniesView({ onOpen }: { onOpen: (slug: string) => void }) {
                     ) : null}
                     <span className={`badge ${p.difficulty}`}>{p.difficulty}</span>
                   </span>
-                </div>
+                </Row>
               ))}
             </>
           ) : (

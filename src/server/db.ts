@@ -68,14 +68,19 @@ export function setMeta(key: string, value: string): void {
 
 if (import.meta.main) {
   migrate();
+  // `AS name`, not `AS table` — `table` is a reserved word in SQLite and the alias made this
+  // query a syntax error, so `bun run src/server/db.ts` crashed AFTER migrating. That is the
+  // worst possible order: the migrations applied, the command reported failure, and the only
+  // way to know the schema was current was to open the file and look. This is the command the
+  // docs point at for applying migrations to a copy, so it has to exit clean.
   const counts = db
-    .query<{ table: string; n: number }, []>(
-      `SELECT 'problems' AS table, COUNT(*) AS n FROM problems
+    .query<{ name: string; n: number }, []>(
+      `SELECT 'problems' AS name, COUNT(*) AS n FROM problems
        UNION ALL SELECT 'lists', COUNT(*) FROM lists
        UNION ALL SELECT 'cards', COUNT(*) FROM cards
        UNION ALL SELECT 'attempts', COUNT(*) FROM attempts`,
     )
     .all();
   console.log(`[db] ${DB_PATH}`);
-  for (const c of counts) console.log(`  ${c.table.padEnd(10)} ${c.n}`);
+  for (const c of counts) console.log(`  ${c.name.padEnd(10)} ${c.n}`);
 }

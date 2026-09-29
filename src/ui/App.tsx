@@ -14,12 +14,15 @@ import { FundamentalsView } from "./components/FundamentalsView";
 import { DesignView } from "./components/DesignView";
 import { ComponentsView } from "./components/ComponentsView";
 import { TipsPanel } from "./components/TipsPanel";
+import { Row } from "./components/Row";
+import { ProseTrackView } from "./components/ProseTrackView";
 import {
   api,
   ApiError,
   GRADE_LABEL,
   type DueItem,
   type DuePattern,
+  type DueProse,
   type ListSummary,
   type MilestoneState,
   type ProblemDetail,
@@ -62,6 +65,8 @@ const NAV: Array<{ label: string; items: Array<readonly [View, string]> }> = [
       ["fundamentals", "Fundamentals"],
       ["design", "Design"],
       ["components", "Build"],
+      ["behavioral", "Behavioral"],
+      ["stack", "Stack"],
     ],
   },
   {
@@ -95,7 +100,9 @@ type View =
   | "settings"
   | "fundamentals"
   | "design"
-  | "components";
+  | "components"
+  | "behavioral"
+  | "stack";
 
 export function App() {
   const [view, setView] = useState<View>("overview");
@@ -104,6 +111,17 @@ export function App() {
   const [activeList, setActiveList] = useState<string>("neetcode150");
   const [due, setDue] = useState<DueItem[]>([]);
   const [duePatterns, setDuePatterns] = useState<DuePattern[]>([]);
+  /**
+   * The prose tracks' due items, keyed by kind.
+   *
+   * Kept as one map rather than two states because the two lists are always read and written
+   * together — they come from the same response and are rendered by the same component — and
+   * two `useState` calls would be two chances for them to drift apart.
+   */
+  const [dueProse, setDueProse] = useState<{ behavioral: DueProse[]; stack: DueProse[] }>({
+    behavioral: [],
+    stack: [],
+  });
   const [streak, setStreak] = useState<StreakStats | null>(null);
   const [milestones, setMilestones] = useState<MilestoneState[]>([]);
   const [openSlug, setOpenSlug] = useState<string | null>(null);
@@ -137,8 +155,11 @@ export function App() {
 
   const loadDue = useCallback(async () => {
     try {
-      const r = await api<{ due: DueItem[] }>("/api/review?limit=50");
+      const r = await api<{ due: DueItem[]; behavioralDue: DueProse[]; stackDue: DueProse[] }>(
+        "/api/review?limit=50",
+      );
       setDue(r.due);
+      setDueProse({ behavioral: r.behavioralDue, stack: r.stackDue });
       const p = await api<{ due: DuePattern[] }>("/api/review/patterns?limit=20");
       setDuePatterns(p.due);
     } catch (e) {
@@ -294,7 +315,14 @@ export function App() {
         ) : null}
 
         {view === "review" ? (
-          <Review due={due} duePatterns={duePatterns} onOpen={setOpenSlug} onRefresh={loadDue} />
+          <Review
+            due={due}
+            duePatterns={duePatterns}
+            dueProse={dueProse}
+            onOpen={setOpenSlug}
+            onOpenTrack={setView}
+            onRefresh={loadDue}
+          />
         ) : null}
 
         {view === "list" ? <ProblemList listName={activeList} onOpen={setOpenSlug} /> : null}
@@ -308,6 +336,10 @@ export function App() {
         {view === "components" ? (
           <ComponentsView initialSlug={componentSlug} onSolved={onSolved} />
         ) : null}
+
+        {view === "behavioral" ? <ProseTrackView kind="behavioral" onSolved={onSolved} /> : null}
+
+        {view === "stack" ? <ProseTrackView kind="stack" onSolved={onSolved} /> : null}
 
         {view === "weakness" ? <MasteryView /> : null}
 
@@ -423,34 +455,6 @@ function Overview({
         </div>
       ) : null}
 
-      <h2>Milestones</h2>
-      <p className="muted small">
-        Earned once, from what the attempt log actually records. Nothing here can be claimed — each
-        row is a query over graded work.
-      </p>
-      <div className="table">
-        {milestones.map((m) => (
-          <div key={m.id} className={`problem-row milestone${m.earnedAt ? " earned" : ""}`}>
-            <span className="qid">{m.earnedAt ? "✓" : "·"}</span>
-            <span className="title">
-              <span className={m.earnedAt ? undefined : "muted"}>{m.title}</span>
-              {!m.earnedAt ? (
-                <span className="muted small" style={{ display: "block" }}>
-                  {m.requirement}
-                </span>
-              ) : null}
-            </span>
-            <span className="muted small mono">
-              {m.earnedAt
-                ? new Date(m.earnedAt).toLocaleDateString()
-                : (m.progress ?? "")}
-            </span>
-          </div>
-        ))}
-      </div>
-
-      <TipsPanel />
-
       <h2>Due now</h2>
       {due.length === 0 ? (
         <div className="empty">
@@ -459,11 +463,11 @@ function Overview({
       ) : (
         <div className="table">
           {due.slice(0, 8).map((d) => (
-            <div key={d.qid} className="problem-row" onClick={() => onOpen(d.slug)}>
+            <Row key={d.qid} onClick={() => onOpen(d.slug)}>
               <span className="qid">{d.qid}</span>
               <span className="title">{d.title}</span>
               <span className={`badge ${d.difficulty}`}>{d.difficulty}</span>
-            </div>
+            </Row>
           ))}
         </div>
       )}
@@ -489,6 +493,36 @@ function Overview({
           );
         })}
       </div>
+
+      <h2>Milestones</h2>
+      <p className="muted small">
+        Earned once, from what the attempt log actually records. Nothing here can be claimed — each
+        row is a query over graded work.
+      </p>
+      <div className="table">
+        {milestones.map((m) => (
+          <div key={m.id} className={`problem-row milestone${m.earnedAt ? " earned" : ""}`}>
+            <span className="qid">{m.earnedAt ? "✓" : "·"}</span>
+            <span className="title">
+              <span className={m.earnedAt ? undefined : "muted"}>{m.title}</span>
+              {/*
+                The requirement stays on an earned row rather than being replaced by the date.
+                It is the only place the milestone's threshold is written down, so dropping it
+                once earned made the list unreadable after the fact — you could see that
+                something was earned but not what it took.
+              */}
+              <span className="muted small sub">{m.requirement}</span>
+            </span>
+            <span className="muted small mono">
+              {m.earnedAt
+                ? new Date(m.earnedAt).toLocaleDateString()
+                : (m.progress ?? "")}
+            </span>
+          </div>
+        ))}
+      </div>
+
+      <TipsPanel />
     </>
   );
 }
@@ -496,12 +530,16 @@ function Overview({
 function Review({
   due,
   duePatterns,
+  dueProse,
   onOpen,
+  onOpenTrack,
   onRefresh,
 }: {
   due: DueItem[];
   duePatterns: DuePattern[];
+  dueProse: { behavioral: DueProse[]; stack: DueProse[] };
   onOpen: (s: string) => void;
+  onOpenTrack: (view: "behavioral" | "stack") => void;
   onRefresh: () => void;
 }) {
   return (
@@ -514,15 +552,15 @@ function Review({
         Re-solve these from memory, no hints. Your grade is derived from whether the tests pass — not from how
         confident you feel.
       </p>
-      <div style={{ marginTop: 14 }}>
+      <div className="stack-md">
         {due.map((d) => (
-          <div key={d.qid} className="problem-row" onClick={() => onOpen(d.slug)}>
+          <Row key={d.qid} onClick={() => onOpen(d.slug)}>
             <span className="qid">{d.qid}</span>
             <span className="title">{d.title}</span>
             <span className="muted small">
               {d.reps} reps{d.lapses > 0 ? `, ${d.lapses} lapses` : ""}
             </span>
-          </div>
+          </Row>
         ))}
         {due.length === 0 ? <div className="empty">Nothing due right now.</div> : null}
       </div>
@@ -536,18 +574,51 @@ function Review({
           </p>
           <div className="table">
             {duePatterns.map((p) => (
-              <div key={p.pattern} className="problem-row" onClick={() => onOpen(p.slug)}>
+              <Row key={p.pattern} onClick={() => onOpen(p.slug)}>
                 <span className="qid">{p.reps}×</span>
                 <span className="title">
                   {p.pattern}
                   <span className="muted small"> · re-solve {p.title}</span>
                 </span>
                 <span className={`badge ${p.difficulty}`}>{p.difficulty}</span>
-              </div>
+              </Row>
             ))}
           </div>
         </>
       ) : null}
+
+      {/*
+        The prose tracks. Each section is omitted entirely when its list is empty, matching how
+        "Patterns due" is handled above — an empty heading with a "nothing here" line would
+        repeat three times on a quiet day and bury the problems that ARE due.
+
+        Clicking opens the track on its prompt list rather than straight into the prompt: the
+        track owns its resume logic, and jumping directly would need a second way to start a
+        session that bypasses the one the view already has.
+      */}
+      {(["behavioral", "stack"] as const).map((kind) =>
+        dueProse[kind].length > 0 ? (
+          <div key={kind}>
+            <h2>{kind === "behavioral" ? "Behavioral due" : "Stack due"}</h2>
+            <p className="muted small">
+              Answer these again from memory. The prompt is scheduled from the rubric grade, so a
+              fuller answer moves it out further.
+            </p>
+            <div className="table">
+              {dueProse[kind].map((p) => (
+                <Row key={p.slug} onClick={() => onOpenTrack(kind)}>
+                  <span className="qid">{p.reps}×</span>
+                  <span className="title">{p.title}</span>
+                  <span className="muted small">
+                    {p.reps} rep{p.reps === 1 ? "" : "s"}
+                    {p.lapses > 0 ? `, ${p.lapses} lapses` : ""}
+                  </span>
+                </Row>
+              ))}
+            </div>
+          </div>
+        ) : null,
+      )}
     </>
   );
 }
@@ -774,7 +845,7 @@ function ProblemView({ slug, onBack }: { slug: string; onBack: () => void }) {
             </div>
 
             {problem.hints.length > 0 ? (
-              <div style={{ marginTop: 22 }}>
+              <div className="stack-lg">
                 <h2 style={{ marginTop: 0 }}>Hints ({problem.hints.length})</h2>
                 {problem.hints.map((h, i) => (
                   <details
@@ -842,7 +913,7 @@ function ProblemView({ slug, onBack }: { slug: string; onBack: () => void }) {
             ) : null}
 
             {run ? (
-              <div style={{ marginTop: 14 }}>
+              <div className="stack-md">
                 <div className="row">
                   <span className={`verdict ${run.accepted ? "pass" : "fail"}`}>
                     {run.accepted ? "ACCEPTED" : "WRONG ANSWER"}
@@ -954,7 +1025,7 @@ function PremiumStatement({ slug, onSaved }: { slug: string; onSaved: () => void
             onChange={(e) => setDraft(e.target.value)}
             style={{ width: "100%" }}
           />
-          <div className="row" style={{ marginTop: 8 }}>
+          <div className="row stack-sm">
             <button className="primary" disabled={busy || draft.trim().length === 0} onClick={() => void save()}>
               {busy ? "Saving…" : "Save statement"}
             </button>

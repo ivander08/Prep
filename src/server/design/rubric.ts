@@ -416,17 +416,25 @@ export function signalScore(dim: RubricDimension, s: Signals): number {
 }
 
 /**
- * Map a rubric result onto the app's FSRS grades, the same way `gradeAttempt` does for code.
+ * Map a set of 1-4 dimension scores onto the app's FSRS grades.
  *
  * `Again` is reserved for a dimension at the bottom of the scale, because one dimension at 1
- * means a part of the round did not happen at all — that is a fail, not a weak pass. The
- * thresholds are on the average of the five dimensions.
+ * means a part of the exercise did not happen at all — that is a fail, not a weak pass. The
+ * thresholds are on the average.
+ *
+ * Takes a plain array rather than a keyed record so the prose tracks (`tracks/grade.ts`) can
+ * share the rule: they score four dimensions, the design round scores five, and a second copy
+ * of these three lines would be the place the two tracks' grades silently diverged.
  */
-export function gradeFromScores(scores: Record<RubricDimension, number>): 1 | 2 | 3 | 4 {
-  const values = RUBRIC_DIMENSIONS.map((d) => scores[d] ?? 1);
+export function gradeFromValues(values: number[]): 1 | 2 | 3 | 4 {
   if (values.some((v) => v <= 1)) return 1;
   const avg = values.reduce((a, b) => a + b, 0) / values.length;
   if (avg < 2.5) return 2;
   if (avg < 3.5) return 3;
   return 4;
+}
+
+/** The design round's five dimensions, in `RUBRIC_DIMENSIONS` order. */
+export function gradeFromScores(scores: Record<RubricDimension, number>): 1 | 2 | 3 | 4 {
+  return gradeFromValues(RUBRIC_DIMENSIONS.map((d) => scores[d] ?? 1));
 }

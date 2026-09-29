@@ -11,6 +11,7 @@ import { CodeEditor, AssistPicker, type AssistLevel } from "./CodeEditor";
 import { Stopwatch, useStopwatchVisible } from "./Stopwatch";
 import { CaseTabs } from "./CaseTabs";
 import { Markdown } from "./Markdown";
+import { Row } from "./Row";
 
 type ModulesResponse = {
   lang: string | null;
@@ -196,9 +197,9 @@ export function ComponentsView({
               </div>
               <div className="table" style={{ border: "none" }}>
                 {m.components.map((c) => (
-                  <div
+                  <Row
                     key={c.slug}
-                    className={`problem-row${c.reviewed ? " solved" : ""}${c.slug === activeSlug ? " active" : ""}`}
+                    className={`${c.reviewed ? "solved" : ""}${c.slug === activeSlug ? " active" : ""}`}
                     onClick={() => setActiveSlug(c.slug)}
                   >
                     <span className="qid">{c.reviewed ? "✓" : "·"}</span>
@@ -208,7 +209,7 @@ export function ComponentsView({
                         {c.prereq.length} pre
                       </span>
                     ) : null}
-                  </div>
+                  </Row>
                 ))}
               </div>
             </div>
@@ -256,7 +257,7 @@ export function ComponentsView({
               <AssistPicker value={assist} onChange={setAssist} language={component.lang} />
 
               {run ? (
-                <div style={{ marginTop: 14 }}>
+                <div className="stack-md">
                   <div className="row">
                     <span className={`verdict ${run.accepted ? "pass" : "fail"}`}>
                       {run.accepted ? "ACCEPTED" : "WRONG ANSWER"}
@@ -289,7 +290,7 @@ export function ComponentsView({
                   {run.accepted ? (
                     <details className="hint" style={{ marginTop: 12 }}>
                       <summary>Show the exemplar</summary>
-                      <div style={{ marginTop: 8 }}>
+                      <div className="stack-sm">
                         <p className="muted small">
                           Only offered after a pass — reading it first is how a component feels built without
                           being built.

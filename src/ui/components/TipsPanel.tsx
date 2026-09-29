@@ -1,5 +1,3 @@
-import { useState } from "react";
-
 /**
  * The technique panel.
  *
@@ -49,26 +47,33 @@ export const INTERVIEW_TIPS: Array<{ title: string; body: string }> = [
   },
 ];
 
-/** The interview technique list. Open by default — on the Overview it is reference the reader can scan, not a nag. */
+/**
+ * The interview technique list.
+ *
+ * Always expanded. It was a toggle, which was wrong for reference material: the eight headings
+ * are the index — you scan them to find the one you need — and a collapsed list hides exactly
+ * the thing that makes it useful. A disclosure also made the page jump under the cursor every
+ * time it was opened.
+ *
+ * A heading and a table rather than a button and a table, so it reads as a section of the page
+ * like "Milestones" and "Due now" do, instead of as a control that happens to be open.
+ */
 export function TipsPanel() {
-  const [open, setOpen] = useState(true);
-
   return (
-    <div style={{ marginTop: 22 }}>
-      <button onClick={() => setOpen((o) => !o)}>
-        {open ? "▾" : "▸"} Interview technique ({INTERVIEW_TIPS.length})
-      </button>
-
-      {open ? (
-        <div className="table" style={{ marginTop: 8 }}>
-          {INTERVIEW_TIPS.map((t) => (
-            <div key={t.title} className="tip-row">
-              <span className="tip-title">{t.title}</span>
-              <span className="tip-body">{t.body}</span>
-            </div>
-          ))}
-        </div>
-      ) : null}
-    </div>
+    <section className="stack-lg">
+      <h2>Interview technique</h2>
+      <p className="muted small">
+        What to do in the round regardless of which algorithm the problem wants. The same eight
+        habits every time.
+      </p>
+      <div className="table">
+        {INTERVIEW_TIPS.map((t) => (
+          <div key={t.title} className="tip-row">
+            <span className="tip-title">{t.title}</span>
+            <span className="tip-body">{t.body}</span>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }

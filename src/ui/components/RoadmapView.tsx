@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, type PatternPriority, type PatternRefView } from "../api";
+import { Row } from "./Row";
 
 type RoadmapProblem = {
   qid: number;
@@ -47,10 +48,26 @@ const LANG_LABEL: Record<string, string> = {
 export function RoadmapView({ onOpen }: { onOpen: (slug: string) => void }) {
   const [list, setList] = useState<string>("neetcode150");
   const [patterns, setPatterns] = useState<RoadmapPattern[]>([]);
+  /**
+   * Whether each pattern's PROBLEM LIST is collapsed. Open by default — the problem list is
+   * the exercise, so it is what you came for.
+   */
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  /**
+   * Whether each pattern's reference card is OPEN. Closed by default.
+   *
+   * Closed because the card is a page of complexity tables, corner cases, pitfalls and a
+   * stdlib map — reading material, not the exercise. With it open, the first pattern pushed
+   * every other pattern's problems below a screenful, so the roadmap's shape (which is the
+   * thing the view is for) was invisible on arrival.
+   *
+   * Inverted from the old `collapsed` map so the default is the closed state and an absent key
+   * reads as "closed" — the same reason the problems list below uses a positive flag.
+   */
+  const [cardOpen, setCardOpen] = useState<Record<string, boolean>>({});
   const [error, setError] = useState<string | null>(null);
   /**
-   * Reference cards, fetched once per pattern on first expand and kept.
+   * Reference cards, fetched once per pattern and kept.
    *
    * Cached rather than re-fetched on every expand: collapsing and re-expanding a pattern is a
    * common way to compare two of them, and a request per toggle would make that feel slow. The
@@ -58,6 +75,16 @@ export function RoadmapView({ onOpen }: { onOpen: (slug: string) => void }) {
    * added later is not re-requested on every open.
    */
   const [refs, setRefs] = useState<Record<string, PatternRefView | null>>({});
+  /**
+   * Patterns whose card fetch FAILED, as opposed to patterns that have no card.
+   *
+   * Without this the two collapse into the same `null` in `refs`, and a failed fetch renders
+   * identically to "this pattern genuinely has no reference card" — so a network error is
+   * indistinguishable from an empty result and the retry is impossible to discover. Kept in
+   * its own map rather than as a third value in `refs` because `refs`'s `null` is a real
+   * cached answer, and a failed fetch must not be cached as one.
+   */
+  const [refErrors, setRefErrors] = useState<Record<string, boolean>>({});
 
   const load = useCallback(async (name: string) => {
     try {
@@ -76,10 +103,13 @@ export function RoadmapView({ onOpen }: { onOpen: (slug: string) => void }) {
           `/api/reference/pattern?pattern=${encodeURIComponent(pattern)}&list=${encodeURIComponent(list)}`,
         );
         setRefs((c) => ({ ...c, [pattern]: r.ref }));
+        setRefErrors((c) => ({ ...c, [pattern]: false }));
       } catch {
         // A failed card fetch is not worth an error banner: the pattern list below it still
-        // works, and the card is reference material rather than the exercise itself.
-        setRefs((c) => ({ ...c, [pattern]: null }));
+        // works, and the card is reference material rather than the exercise itself. It IS
+        // worth distinguishing from "no card", so the row says so and offers the retry —
+        // see the render branch.
+        setRefErrors((c) => ({ ...c, [pattern]: true }));
       }
     },
     [list],
@@ -87,8 +117,10 @@ export function RoadmapView({ onOpen }: { onOpen: (slug: string) => void }) {
 
   useEffect(() => {
     // `recommended` is list-specific, so a cached card from another list would recommend
-    // problems that are not in this one.
+    // problems that are not in this one. The error flags go with the cache for the same
+    // reason: a failure against one list says nothing about the next.
     setRefs({});
+    setRefErrors({});
     void load(list);
   }, [list, load]);
 
@@ -150,15 +182,15 @@ export function RoadmapView({ onOpen }: { onOpen: (slug: string) => void }) {
           const pct = p.total > 0 ? (p.solved / p.total) * 100 : 0;
           const done = p.solved === p.total;
           const isCollapsed = collapsed[p.pattern] ?? false;
+          const cardIsOpen = cardOpen[p.pattern] ?? false;
+          /** Fetched and confirmed to have no card — the toggle is then not rendered at all. */
+          const noCard = refs[p.pattern] === null;
 
           return (
             <section key={p.pattern} className={`pattern-block${done ? " done" : ""}`}>
               <button
                 className="pattern-head"
-                onClick={() => {
-                  setCollapsed((c) => ({ ...c, [p.pattern]: !isCollapsed }));
-                  if (isCollapsed && !(p.pattern in refs)) void loadRef(p.pattern);
-                }}
+                onClick={() => setCollapsed((c) => ({ ...c, [p.pattern]: !isCollapsed }))}
               >
                 <span className="caret">{isCollapsed ? "▸" : "▾"}</span>
                 {p.priority ? <span className={`badge ${p.priority}`} title="interview weight">{p.priority}</span> : null}
@@ -183,27 +215,68 @@ export function RoadmapView({ onOpen }: { onOpen: (slug: string) => void }) {
               {!isCollapsed ? (
                 <div className="pattern-problems">
                   {/*
-                    Three states, and they must stay distinguishable: `undefined` = fetch in
-                    flight (show a pending line, not a gap), `null` = fetched and this pattern
-                    genuinely has no card (show nothing — a normal state, since the vocabulary
-                    is ingested), a value = the card. Collapsing and re-expanding hits the
-                    cache, which is why the card only "appears late" on the first expand.
+                    The reference card is its own disclosure, closed by default, and it is
+                    fetched when THAT opens — not when the pattern's problem list opens.
+
+                    The old code fetched on the pattern header's expand, which meant it only
+                    fired for a pattern that had been collapsed first: the list starts expanded,
+                    so the very first open of the Roadmap rendered "Loading card…" forever and
+                    the card only appeared after collapsing and re-expanding the pattern. The
+                    fetch now hangs off the thing that actually needs it.
+
+                    The toggle is hidden once the fetch comes back `null`, because a pattern
+                    with no card should not offer a control that does nothing.
                   */}
-                  {refs[p.pattern] === undefined ? (
-                    <div className="pattern-ref muted small">Loading card…</div>
-                  ) : refs[p.pattern] ? (
-                    <PatternCard card={refs[p.pattern]!} onOpen={onOpen} />
+                  {!noCard ? (
+                    <button
+                      className="pattern-card-toggle"
+                      aria-expanded={cardIsOpen}
+                      onClick={() => {
+                        setCardOpen((c) => ({ ...c, [p.pattern]: !cardIsOpen }));
+                        // Fetch on the way in, once. `in refs` covers both a real card and a
+                        // confirmed absence, so neither is requested twice.
+                        if (!cardIsOpen && !(p.pattern in refs) && !refErrors[p.pattern]) {
+                          void loadRef(p.pattern);
+                        }
+                      }}
+                    >
+                      <span className="caret">{cardIsOpen ? "▾" : "▸"}</span> Reference card
+                    </button>
                   ) : null}
+
+                  {cardIsOpen ? (
+                    refErrors[p.pattern] ? (
+                      <div className="pattern-ref muted small">
+                        Card unavailable —{" "}
+                        <button
+                          className="tiny"
+                          onClick={() => {
+                            // Clear the flag before re-requesting so the row goes back to the
+                            // pending line rather than sitting on the error while the retry runs.
+                            setRefErrors((c) => ({ ...c, [p.pattern]: false }));
+                            void loadRef(p.pattern);
+                          }}
+                        >
+                          retry
+                        </button>
+                      </div>
+                    ) : refs[p.pattern] ? (
+                      <PatternCard card={refs[p.pattern]!} onOpen={onOpen} />
+                    ) : (
+                      <div className="pattern-ref muted small">Loading card…</div>
+                    )
+                  ) : null}
+
                   {p.problems.map((pr) => (
-                    <div
+                    <Row
                       key={pr.qid}
-                      className={`problem-row${pr.solved ? " solved" : ""}`}
+                      className={pr.solved ? "solved" : ""}
                       onClick={() => onOpen(pr.slug)}
                     >
                       <span className="qid">{pr.qid}</span>
                       <span className="title">{pr.title}</span>
                       <span className={`badge ${pr.difficulty}`}>{pr.difficulty}</span>
-                    </div>
+                    </Row>
                   ))}
                 </div>
               ) : null}
@@ -263,10 +336,10 @@ function PatternCard({ card, onOpen }: { card: PatternRefView; onOpen: (slug: st
       <h3>Drill this pattern</h3>
       <div className="table">
         {card.recommended.map((r) => (
-          <div key={r.slug} className="problem-row" onClick={() => onOpen(r.slug)}>
+          <Row key={r.slug} onClick={() => onOpen(r.slug)}>
             <span className="title">{r.title}</span>
             <span className={`badge ${r.difficulty}`}>{r.difficulty}</span>
-          </div>
+          </Row>
         ))}
       </div>
     </div>

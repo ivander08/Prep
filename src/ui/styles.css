@@ -140,7 +140,10 @@ button {
   transition: border-color 90ms linear, background 90ms linear, color 90ms linear;
 }
 
-button:hover:not(:disabled) {
+/* `.problem-row` is excluded: it is a button for focus reasons only (see `components/Row.tsx`)
+   and carries its own hover. Without this the generic rule's `border-color` repainted the
+   row's bottom hairline on hover, which is a change a div never had. */
+button:hover:not(:disabled):not(.problem-row) {
   border-color: var(--rule-hi);
   background: var(--raise);
 }
@@ -318,6 +321,19 @@ h2 {
 .row { display: flex; align-items: center; gap: 10px; }
 .spread { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 
+/* The three stack gaps the app actually repeats, as classes rather than `style={{ marginTop }}`.
+   A monotone scale — 8, 14, 22 — so the name says how much space, and only the repeated values
+   earn one: a one-off numeric nudge stays inline, because a class for a single call site is
+   indirection without a payoff. */
+.stack-sm { margin-top: 8px; }
+.stack-md { margin-top: 14px; }
+.stack-lg { margin-top: 22px; }
+
+/* The second line of a two-line row: a `<span>` that has to start its own line inside a grid
+   cell. `.title` is a grid item, so `display: block` on the span inside it is what makes the
+   summary sit under the heading rather than beside it. */
+.sub { display: block; }
+
 /* --- Readout strip --------------------------------------------------------
    Replaces the stat-card grid. A row of inline measurements separated by rules,
    like the readout on a bench instrument — not four floating cards. */
@@ -425,6 +441,18 @@ h2 {
 }
 .stopwatch.over .limit { color: var(--signal-dim); }
 
+/* --- Readout — narrow ---------------------------------------------------- */
+
+@media (max-width: 640px) {
+  .readout { display: flex; width: 100%; }
+  .readout .cell {
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 9px 12px 11px;
+  }
+  .readout .v { font-size: 20px; }
+}
+
 /* --- Panels and rules ----------------------------------------------------- */
 
 .card {
@@ -473,15 +501,31 @@ pre.notice {
 
 /* --- Problem rows --------------------------------------------------------- */
 
+/* The rows are <button>s, not <div>s — see `components/Row.tsx`. A button carries a UA
+   background, border, centred text and its own font, and the `button` rule above adds
+   uppercase and letter-spacing that a child would inherit. All of it has to be reset here or
+   every list in the app renders as a stack of bordered, letter-spaced capitals.
+
+   `font: inherit` rather than a family and size of its own: the row's type comes from `.title`
+   and `.qid` below, and the button element is only the focusable box around them. */
 .problem-row {
   display: grid;
   grid-template-columns: 52px 1fr auto;
   gap: 12px;
   align-items: center;
+  width: 100%;
   padding: 8px 12px;
+  border: none;
   border-bottom: 1px solid var(--rule);
-  cursor: pointer;
   border-left: 2px solid transparent;
+  border-radius: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  text-transform: none;
+  letter-spacing: normal;
+  cursor: pointer;
 }
 .problem-row:hover { background: var(--panel); border-left-color: var(--signal-dim); }
 .problem-row .qid {
@@ -495,10 +539,22 @@ pre.notice {
 .problem-row.solved .title { color: var(--dim); }
 
 /* A milestone row. The qid column carries the check rather than a number, so earned rows are
-   scannable down the left edge without reading a single title. */
+   scannable down the left edge without reading a single title.
+
+   An earned row also takes the amber left edge that a hovered `.problem-row` uses. Without it
+   the only difference from an unearned row was a checkmark and a dimmed title, which read as
+   "disabled" rather than "achieved" — the opposite of the intent. The left edge is the same
+   mark the app already uses to mean "this one is live", so it needs no new vocabulary. */
 .problem-row.milestone .qid { font-size: 13px; }
+.problem-row.milestone.earned {
+  background: var(--panel);
+  border-left-color: var(--signal);
+}
 .problem-row.milestone.earned .qid { color: var(--pass); }
-.problem-row.milestone.earned .title { color: var(--dim); }
+.problem-row.milestone.earned .title { color: var(--text); }
+/* The requirement on an earned row is the milestone's threshold, not a to-do — keep it legible
+   rather than dimming it into the background with the rest of the muted text. */
+.problem-row.milestone.earned .sub { color: var(--dim); }
 
 /* Difficulty as a small caps tag, not a pill. */
 .badge {
@@ -603,6 +659,18 @@ pre.notice {
 }
 .lang-select:focus { outline: none; border-color: var(--signal-dim); }
 
+/* --- Filters — narrow ---------------------------------------------------- */
+
+@media (max-width: 640px) {
+  .filters { gap: 8px; }
+  .filters .filter-input { min-width: 0; flex: 1 1 100%; }
+  .filters .field { flex: 1 1 46%; }
+  .filters .field select { width: 100%; }
+
+  /* `.spread` is a two-ended flex row; on a phone the ends collide. */
+  .spread { flex-wrap: wrap; }
+}
+
 /* --- Roadmap -------------------------------------------------------------- */
 
 .roadmap { margin-top: 16px; display: flex; flex-direction: column; gap: 2px; }
@@ -655,7 +723,33 @@ pre.notice {
 .pattern-problems .problem-row:last-child { border-bottom: none; }
 
 /* The reference card, above a pattern's problem list. Indented under the caret column so it
-   reads as part of the pattern rather than as a sibling of it. */
+   reads as part of the pattern rather than as a sibling of it.
+
+   The card's own disclosure sits above it, closed by default. A plain text row rather than a
+   second bordered `.pattern-head`: it is a disclosure inside an already-open block, and giving
+   it a full-width bordered header would read as a second pattern. */
+.pattern-card-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 7px 12px 7px 14px;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--rule);
+  border-radius: 0;
+  text-align: left;
+  font-family: var(--din);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--dim);
+  cursor: pointer;
+}
+.pattern-card-toggle:hover { background: var(--panel); color: var(--text); }
+.pattern-card-toggle .caret { color: var(--faint); font-size: 10px; }
+
 .pattern-ref { padding: 12px 14px 14px 42px; border-bottom: 1px solid var(--rule); }
 .pattern-ref h3 {
   font-family: var(--din);
@@ -697,6 +791,23 @@ pre.notice {
 .tip-title { font-size: 12.5px; color: var(--text); font-weight: 600; }
 .tip-body { font-size: 12.5px; color: var(--dim); }
 @media (max-width: 900px) { .tip-row { grid-template-columns: 1fr; gap: 3px; } }
+
+/* --- Roadmap — narrow ---------------------------------------------------- */
+
+@media (max-width: 640px) {
+  /* caret | weight | name | elo | tally — the badge joins the name's row rather than taking a
+     column of its own, so the name still gets the full width minus the caret and the badge. */
+  .pattern-head {
+    grid-template-columns: 16px max-content minmax(0, 1fr) auto auto;
+    gap: 8px;
+    padding: 9px 10px;
+  }
+  /* The progress bar moves to its own line under the name. */
+  .pattern-head .pattern-track {
+    grid-column: 2 / -1;
+    grid-row: 2;
+  }
+}
 
 /* --- Workspace ------------------------------------------------------------ */
 
@@ -765,6 +876,15 @@ pre.notice {
 .editor-host .cm-editor { min-height: 240px; max-height: 40vh; }
 .editor-host .cm-scroller { font-family: var(--mono); font-size: 12.5px; line-height: 1.6; }
 .editor-host .cm-editor.cm-focused { outline: none; }
+
+/* --- Workspace — narrow -------------------------------------------------- */
+
+@media (max-width: 640px) {
+  /* Already single-column from 1180px; this is the padding and the sticky ordering. */
+  .pane { padding: 12px 12px; }
+  .statement { max-height: none; }
+  .editor-host .cm-editor { min-height: 200px; max-height: 55vh; }
+}
 
 /* --- Case tabs -------------------------------------------------------------
    One case at a time, LeetCode-style, rather than a stacked list. A suite runs up to 128
@@ -1080,6 +1200,15 @@ pre.notice {
 .tutor-input textarea:focus { border-color: var(--rule); background: #0c0e11; }
 .tutor-input button { border: none; padding: 0 20px; }
 
+/* --- Tutor — narrow ------------------------------------------------------ */
+
+@media (max-width: 640px) {
+  .tutor-input button { padding: 0 14px; }
+  .tutor-log { max-height: 260px; }
+  .case-panel { grid-template-columns: 1fr; gap: 4px; }
+  .case-panel .k { padding-top: 6px; }
+}
+
 /* --- Tables --------------------------------------------------------------- */
 
 .table { border: 1px solid var(--rule); background: var(--panel); }
@@ -1110,6 +1239,56 @@ pre.notice {
 
 .tr.mastery { grid-template-columns: 2fr 1.5fr 0.7fr 0.8fr 0.9fr 0.7fr; padding-top: 9px; padding-bottom: 9px; }
 .tr.hintdep { grid-template-columns: 2.2fr 0.9fr 1fr 1.2fr 0.8fr; padding-top: 7px; padding-bottom: 7px; }
+
+/* --- Tables — narrow ----------------------------------------------------- */
+
+@media (max-width: 640px) {
+  .tr,
+  .tr.mastery,
+  .tr.hintdep {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 10px;
+    padding: 10px 12px;
+  }
+  /* The first cell is the row's identity — give it the full width and the emphasis. */
+  .tr > span:first-child {
+    flex: 1 1 100%;
+    color: var(--text);
+  }
+  .tr > span:not(:first-child) {
+    font-size: 11.5px;
+    color: var(--dim);
+  }
+  /* With the header row gone, each number needs its own label. `data-label` is rendered as a
+     prefix on mobile and ignored above 640px, so one markup serves both. */
+  .tr > span[data-label]::before {
+    content: attr(data-label) " ";
+    color: var(--faint);
+    font-size: 9.5px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+  /* The graticule is the one cell that needs the width. */
+  .tr.mastery > .scale-wrap { flex: 1 1 100%; }
+
+  /* Last, and with the `.th` variants spelled out: the header describes columns that no
+     longer exist once each row is a block. `.tr.mastery`/`.tr.hintdep` carry the same
+     specificity as `.tr.th` and would otherwise win on source order. */
+  .tr.th,
+  .tr.th.mastery,
+  .tr.th.hintdep { display: none; }
+
+  .problem-row { grid-template-columns: 40px 1fr auto; gap: 8px; padding: 9px 10px; }
+  .progress-row {
+    grid-template-columns: 1fr auto auto;
+    gap: 8px;
+    padding: 8px 10px;
+  }
+  /* The bar is decoration once the row wraps; the numbers carry the meaning. */
+  .progress-row .track { display: none; }
+}
 
 /* --- Signature: the mastery graticule ------------------------------------
    Elo rendered as a position on a measurement scale. The tick marks are the
@@ -1199,6 +1378,13 @@ pre.notice {
 .company-item .n { font-family: var(--mono); font-size: 10.5px; color: var(--faint); font-variant-numeric: tabular-nums; }
 .company-problems { min-width: 0; padding: 4px 0; }
 
+/* --- Companies — narrow -------------------------------------------------- */
+
+@media (max-width: 640px) {
+  .company-scroll { max-height: 44vh; }
+  .company-item { padding: 8px 10px; }
+}
+
 /* --- Misc ----------------------------------------------------------------- */
 
 .hint {
@@ -1280,6 +1466,13 @@ pre.notice {
   margin: 0;
 }
 .exemplar code { background: none; padding: 0; color: var(--text); }
+
+/* --- Fundamentals — narrow ----------------------------------------------- */
+
+@media (max-width: 640px) {
+  .fundamentals-list { max-height: 44vh; }
+  .module-head { padding: 6px 10px; }
+}
 
 /* ===========================================================================
    Responsive
@@ -1371,129 +1564,6 @@ pre.notice {
   }
 
   .main { padding: 16px 14px 40px; }
-}
-
-/* --- Workspace ------------------------------------------------------------ */
-
-@media (max-width: 640px) {
-  /* Already single-column from 1180px; this is the padding and the sticky ordering. */
-  .pane { padding: 12px 12px; }
-  .statement { max-height: none; }
-  .editor-host .cm-editor { min-height: 200px; max-height: 55vh; }
-}
-
-/* --- Grid tables ---------------------------------------------------------- */
-
-@media (max-width: 640px) {
-  .tr,
-  .tr.mastery,
-  .tr.hintdep {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    gap: 4px 10px;
-    padding: 10px 12px;
-  }
-  /* The first cell is the row's identity — give it the full width and the emphasis. */
-  .tr > span:first-child {
-    flex: 1 1 100%;
-    color: var(--text);
-  }
-  .tr > span:not(:first-child) {
-    font-size: 11.5px;
-    color: var(--dim);
-  }
-  /* With the header row gone, each number needs its own label. `data-label` is rendered as a
-     prefix on mobile and ignored above 640px, so one markup serves both. */
-  .tr > span[data-label]::before {
-    content: attr(data-label) " ";
-    color: var(--faint);
-    font-size: 9.5px;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-  }
-  /* The graticule is the one cell that needs the width. */
-  .tr.mastery > .scale-wrap { flex: 1 1 100%; }
-
-  /* Last, and with the `.th` variants spelled out: the header describes columns that no
-     longer exist once each row is a block. `.tr.mastery`/`.tr.hintdep` carry the same
-     specificity as `.tr.th` and would otherwise win on source order. */
-  .tr.th,
-  .tr.th.mastery,
-  .tr.th.hintdep { display: none; }
-
-  .problem-row { grid-template-columns: 40px 1fr auto; gap: 8px; padding: 9px 10px; }
-  .progress-row {
-    grid-template-columns: 1fr auto auto;
-    gap: 8px;
-    padding: 8px 10px;
-  }
-  /* The bar is decoration once the row wraps; the numbers carry the meaning. */
-  .progress-row .track { display: none; }
-}
-
-/* --- Roadmap pattern header ----------------------------------------------- */
-
-@media (max-width: 640px) {
-  /* caret | weight | name | elo | tally — the badge joins the name's row rather than taking a
-     column of its own, so the name still gets the full width minus the caret and the badge. */
-  .pattern-head {
-    grid-template-columns: 16px max-content minmax(0, 1fr) auto auto;
-    gap: 8px;
-    padding: 9px 10px;
-  }
-  /* The progress bar moves to its own line under the name. */
-  .pattern-head .pattern-track {
-    grid-column: 2 / -1;
-    grid-row: 2;
-  }
-}
-
-/* --- Filters and toolbars ------------------------------------------------- */
-
-@media (max-width: 640px) {
-  .filters { gap: 8px; }
-  .filters .filter-input { min-width: 0; flex: 1 1 100%; }
-  .filters .field { flex: 1 1 46%; }
-  .filters .field select { width: 100%; }
-
-  /* `.spread` is a two-ended flex row; on a phone the ends collide. */
-  .spread { flex-wrap: wrap; }
-}
-
-/* --- Readout -------------------------------------------------------------- */
-
-@media (max-width: 640px) {
-  .readout { display: flex; width: 100%; }
-  .readout .cell {
-    flex: 1 1 0;
-    min-width: 0;
-    padding: 9px 12px 11px;
-  }
-  .readout .v { font-size: 20px; }
-}
-
-/* --- Fundamentals --------------------------------------------------------- */
-
-@media (max-width: 640px) {
-  .fundamentals-list { max-height: 44vh; }
-  .module-head { padding: 6px 10px; }
-}
-
-/* --- Companies ------------------------------------------------------------ */
-
-@media (max-width: 640px) {
-  .company-scroll { max-height: 44vh; }
-  .company-item { padding: 8px 10px; }
-}
-
-/* --- Tutor ---------------------------------------------------------------- */
-
-@media (max-width: 640px) {
-  .tutor-input button { padding: 0 14px; }
-  .tutor-log { max-height: 260px; }
-  .case-panel { grid-template-columns: 1fr; gap: 4px; }
-  .case-panel .k { padding-top: 6px; }
 }
 
 /* --- Last squeeze --------------------------------------------------------- */

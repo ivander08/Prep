@@ -406,6 +406,81 @@ export type MilestoneState = {
   progress: string | null;
 };
 
+// ---------------------------------------------------------------------------
+// Behavioral and stack tracks
+// ---------------------------------------------------------------------------
+
+export type ProseTrackKind = "behavioral" | "stack";
+
+/** A prompt as listed: the answer key is stripped and fetched per prompt. */
+export type ProsePromptSummary = { slug: string; group: string; title: string; summary: string };
+
+export type ProsePromptGroup = { group: string; label: string; prompts: ProsePromptSummary[] };
+
+export type ProsePrompt = ProsePromptSummary & {
+  statement: string;
+  lookFor: string[];
+  commonMistakes: string[];
+};
+
+/** One dimension's score with the evidence that earned it. */
+export type TrackScore = {
+  score: number;
+  evidence: string;
+  signalScore: number;
+  source: "model" | "signal";
+};
+
+export type TrackSignals = {
+  words: number;
+  firstPerson: number;
+  quantified: number;
+  actionVerbs: number;
+};
+
+export type TrackGradeResult = {
+  scores: Record<TrackDimension, TrackScore>;
+  signals: TrackSignals;
+  grade: number;
+  summary: string;
+  model: string;
+  costIdr: number;
+  nextDue: string | null;
+  intervalDays: number | null;
+};
+
+export type TrackDimension = "structure" | "specificity" | "ownership" | "impact";
+
+/** Display order, and the label each dimension renders under. */
+export const TRACK_DIMENSIONS: TrackDimension[] = ["structure", "specificity", "ownership", "impact"];
+
+export const TRACK_DIMENSION_LABEL: Record<TrackDimension, string> = {
+  structure: "Structure",
+  specificity: "Specificity",
+  ownership: "Ownership",
+  impact: "Impact",
+};
+
+export type TrackSession = {
+  id: number;
+  kind: ProseTrackKind;
+  slug: string;
+  title: string;
+  statement: string;
+  answerMd: string;
+  startedAt: string;
+  endedAt: string | null;
+};
+
+/** A prose item due for review. */
+export type DueProse = {
+  slug: string;
+  title: string;
+  due: string;
+  reps: number;
+  lapses: number;
+};
+
 /**
  * An HTTP failure that keeps the status and the parsed body.
  *

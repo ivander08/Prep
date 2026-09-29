@@ -337,10 +337,59 @@ export function reviewDesign(
 }
 
 /**
+ * Prose items due for review, for one kind.
+ *
+ * A sibling of `duePatterns` rather than a generalisation of it: that query inner-joins
+ * `problems` to find a representative solved attempt, which a prose item has no equivalent of.
+ * This one joins nothing — `items.title` is the whole payload, because a behavioral prompt is
+ * reviewed by answering it again, not by re-solving a problem.
+ *
+ * The `kind` filter is bound as a parameter rather than interpolated, so the two tracks share
+ * one query and one index (`idx_item_cards_due`) instead of growing a copy each.
+ */
+export function dueProse(kind: "behavioral" | "stack", limit = 20): DueProse[] {
+  return db
+    .query<DueProse, [string, string, number]>(
+      `SELECT i.ref AS slug, i.title, ic.due, ic.reps, ic.lapses
+       FROM item_cards ic
+       JOIN items i ON i.id = ic.item_id AND i.kind = ?
+       WHERE ic.due <= ?
+       ORDER BY ic.due ASC LIMIT ?`,
+    )
+    .all(kind, new Date().toISOString(), limit);
+}
+
+/** A prose item due for review. `title` is the whole payload — see `dueProse`. */
+export type DueProse = {
+  slug: string;
+  title: string;
+  due: string;
+  reps: number;
+  lapses: number;
+};
+
+/**
+ * Schedule a prose-track item.
+ *
+ * A third sibling of `reviewPattern` and `reviewDesign` rather than a call to `ensureKindItem`
+ * from outside: that helper is module-private, and these three wrappers exist precisely so the
+ * `items` row is always created immediately before the `item_cards` row it hangs off.
+ */
+export function reviewProse(
+  kind: "behavioral" | "stack",
+  slug: string,
+  title: string,
+  grade: Grade,
+  now = new Date(),
+): { due: Date; intervalDays: number } {
+  return reviewItem(ensureKindItem(kind, slug, title, null), grade, now);
+}
+
+/**
  * The `items` row for a non-DSA item kind, created on first use.
  *
- * Shared by the pattern and design cards because they differ only in the kind string and
- * what goes in `title`/`body_md`; a copy per kind would be the same four lines three times.
+ * Shared by the pattern, design and prose cards because they differ only in the kind string and
+ * what goes in `title`/`body_md`; a copy per kind would be the same four lines four times.
  */
 function ensureKindItem(kind: string, ref: string, title: string, bodyMd: string | null): number {
   db.run(
