@@ -3,6 +3,12 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      The same file the sidebar renders. An SVG favicon needs no `.ico` fallback in any browser
+      this app runs in (Chromium and WebKit via Tauri), and the mark is drawn on the app's own
+      palette so it reads as the app rather than as a generic tab icon.
+    -->
+    <link rel="icon" type="image/svg+xml" href="/assets/logo.svg" />
     <title>Prep</title>
   </head>
   <body>

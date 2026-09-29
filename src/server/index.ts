@@ -8,6 +8,10 @@
  */
 
 import { Hono } from "hono";
+import { serveStatic } from "hono/bun";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+import { UI_DIR } from "./paths.ts";
 import { db, migrate, getMeta, setMeta } from "./db.ts";
 import { fetchProblem, htmlToMarkdown, hintToMarkdown } from "./leetcode.ts";
 import { buildTestCases, runFullTests, type FullTestRow, type ProblemMeta } from "./executor.ts";
@@ -57,6 +61,7 @@ import {
   LANG_LABEL as COMPONENT_LANG_LABEL,
   LANGS as COMPONENT_LANGS,
 } from "./components.ts";
+import { getSqlProblem, listSqlProblems, runSql, sqlProgress } from "./sql/index.ts";
 
 migrate();
 
@@ -83,6 +88,55 @@ app.get("/api/lists", (c) => {
     catalog: db.query<{ n: number }, []>("SELECT COUNT(*) AS n FROM problems").get()?.n ?? 0,
     ingestedAt: getMeta("ingested_at"),
   });
+});
+
+/**
+ * Catalog-wide problem search.
+ *
+ * There is deliberately no `Problems` nav entry (see the note in `App.tsx`): a generic entry that
+ * rendered the active list under a new heading was worse than the list buttons themselves. That
+ * decision left 4,068 problems with no way to reach the ones outside a curated list, which is
+ * most of them. This endpoint is the missing half — a list view can search what it already
+ * fetched, and this searches everything.
+ *
+ * Registered BEFORE `/api/problems/:slug`, which would otherwise match "search" as a slug and
+ * answer 404 "problem not found" for a search that works.
+ *
+ * Matches slug as well as title because the slug is what a URL or a colleague says
+ * ("two-sum"). A `LIKE` over 4,068 rows is fast enough without a full-text table, and the
+ * ordering puts an exact slug match first: plain relevance would return "Two Sum II",
+ * "Two Sum IV" and "Two Sum Less Than K" above the problem actually named "Two Sum".
+ */
+app.get("/api/problems/search", (c) => {
+  const q = (c.req.query("q") ?? "").trim();
+  if (q.length === 0) return c.json({ problems: [], query: "" });
+
+  const limit = Math.min(Number(c.req.query("limit") ?? 50), 200);
+  // `%` and `_` are LIKE wildcards, so a query containing them would turn one character into
+  // "anything". Escaped, with `ESCAPE` declared, so they match literally.
+  const escaped = q.replace(/[\\%_]/g, (m) => `\\${m}`);
+  const pattern = `%${escaped}%`;
+
+  const rows = db
+    .query<
+      { qid: number; slug: string; title: string; difficulty: string; pattern: string | null; solved: number },
+      [string, string, string, string, string, number]
+    >(
+      `SELECT p.qid, p.slug, p.title, p.difficulty, p.pattern,
+              COALESCE((SELECT MAX(a.passed) FROM attempts a WHERE a.qid = p.qid), 0) AS solved
+       FROM problems p
+       WHERE p.title LIKE ? ESCAPE '\\' OR p.slug LIKE ? ESCAPE '\\'
+       ORDER BY
+         CASE WHEN p.slug = ? THEN 0
+              WHEN p.slug LIKE ? ESCAPE '\\' THEN 1
+              WHEN p.title LIKE ? ESCAPE '\\' THEN 2
+              ELSE 3 END,
+         p.qid ASC
+       LIMIT ?`,
+    )
+    .all(pattern, pattern, q.toLowerCase(), `${escaped.toLowerCase()}%`, `${escaped}%`, limit);
+
+  return c.json({ problems: rows, query: q });
 });
 
 /**
@@ -887,6 +941,69 @@ registerProseTrack(app, "behavioral");
 registerProseTrack(app, "stack");
 
 // ---------------------------------------------------------------------------
+// SQL 50
+// ---------------------------------------------------------------------------
+
+/**
+ * The problem list, in list order, with a solved marker.
+ *
+ * `statement` and the reference query are NOT here: the list is browsed, and the answer key
+ * must never reach the client. `getSqlProblem` carries the statement and the schema, and the
+ * reference query only ever appears in a run result, after a pass.
+ */
+app.get("/api/sql", (c) => {
+  return c.json({ problems: listSqlProblems(), ...sqlProgress() });
+});
+
+/**
+ * One problem: statement, normalized schema, seed rows.
+ *
+ * Addressed by a query parameter, like the concepts and components, so a `:slug` route cannot
+ * collide with `/api/sql/run`. The slug has no slash, but the two endpoints would otherwise be
+ * ambiguous the moment one is added.
+ */
+app.get("/api/sql/item", (c) => {
+  const slug = c.req.query("slug");
+  if (!slug) return c.json({ error: "slug query parameter is required" }, 400);
+
+  try {
+    const problem = getSqlProblem(slug);
+    if (!problem) return c.json({ error: `unknown SQL problem: ${slug}` }, 404);
+    return c.json(problem);
+  } catch (e) {
+    // A problem that was never fetched is a setup problem, not a bug: say which command fixes
+    // it instead of returning a 500 the UI would render as a crash.
+    return c.json({ error: String(e), notFetched: true }, 409);
+  }
+});
+
+/**
+ * Run a submission against a freshly seeded database.
+ *
+ * The verdict comes from executing the query, and the reference query is the oracle, so a
+ * correct answer cannot be marked wrong by a hand-written expected-output parser. The attempt
+ * is recorded here rather than through `/api/attempts`, because the SQL track's grade is
+ * derived from the execution result and there is no client-side verdict to trust.
+ */
+app.post("/api/sql/run", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as { slug?: string; query?: string; seconds?: number };
+  if (!body.slug) return c.json({ error: "slug is required" }, 400);
+  if (typeof body.query !== "string") return c.json({ error: "query is required" }, 400);
+
+  try {
+    const result = runSql(body.slug, body.query, body.seconds ?? 0);
+    return c.json({
+      ...result,
+      disclaimer:
+        "Executed against a local SQLite database seeded from the problem's own sample data. " +
+        "The reference query is the oracle, and rows are compared as a multiset.",
+    });
+  } catch (e) {
+    return c.json({ error: String(e) }, 422);
+  }
+});
+
+// ---------------------------------------------------------------------------
 // Models
 // ---------------------------------------------------------------------------
 
@@ -930,8 +1047,63 @@ app.get("/api/mastery", (c) => {
   });
 });
 
-/** The daily streak, derived from the cards that were scheduled. */
+/**
+ * The daily streak, derived from the cards that were scheduled.
+ */
 app.get("/api/streak", (c) => c.json(streakStats()));
+
+/**
+ * Weekly activity for the last twelve weeks.
+ *
+ * Twelve weeks is one training block: long enough that a gap is visible as a gap, short enough
+ * that the bars still move week to week. Buckets are Monday-aligned so a week means the same
+ * thing here as it does in the streak calendar, and the three numbers answer three different
+ * questions that a single count would conflate — how much was solved (progress), how much was
+ * attempted (work), and on how many days (consistency).
+ *
+ * `solved` counts DISTINCT problems with a passing attempt in the week, not passing attempts:
+ * re-solving one problem five times is practice, but it is not five problems solved.
+ *
+ * Every bucket is emitted, including weeks with nothing in them. A week with no rows has to
+ * appear as a zero-height bar; dropping it would silently compress the axis and make a two-week
+ * gap look like continuous work.
+ */
+app.get("/api/progress/history", (c) => {
+  const count = Math.min(Math.max(Number(c.req.query("weeks") ?? 12), 1), 52);
+
+  const weeks = db
+    .query<{ weekStart: string; solved: number; attempts: number; activeDays: number }, [number]>(
+      `WITH RECURSIVE seq(i) AS (
+         SELECT 0 UNION ALL SELECT i + 1 FROM seq WHERE i + 1 < ?
+       ),
+       weeks AS (
+         SELECT date('now', 'localtime', 'weekday 1', '-' || ((i * 7) + 7) || ' days') AS weekStart
+         FROM seq
+       )
+       SELECT w.weekStart,
+              (SELECT COUNT(DISTINCT a.qid) FROM attempts a
+                WHERE a.passed = 1
+                  AND date(a.ended_at, 'localtime') >= w.weekStart
+                  AND date(a.ended_at, 'localtime') < date(w.weekStart, '+7 days')) AS solved,
+              (SELECT COUNT(*) FROM attempts a
+                WHERE date(a.ended_at, 'localtime') >= w.weekStart
+                  AND date(a.ended_at, 'localtime') < date(w.weekStart, '+7 days')) AS attempts,
+              (SELECT COUNT(*) FROM (
+                 SELECT DISTINCT date(a.ended_at, 'localtime') AS day FROM attempts a
+                 WHERE a.ended_at IS NOT NULL
+                 UNION
+                 SELECT DISTINCT date(last_review, 'localtime') FROM cards WHERE last_review IS NOT NULL
+                 UNION
+                 SELECT DISTINCT date(last_review, 'localtime') FROM item_cards WHERE last_review IS NOT NULL
+               ) d
+                WHERE d.day >= w.weekStart AND d.day < date(w.weekStart, '+7 days')) AS activeDays
+       FROM weeks w
+       ORDER BY w.weekStart ASC`,
+    )
+    .all(count);
+
+  return c.json({ weeks });
+});
 
 /**
  * Every milestone with its earned state. Evaluates and awards on read, so a milestone reached
@@ -1330,6 +1502,36 @@ app.post("/api/components/run", async (c) => {
     intervalDays: schedule.intervalDays,
   });
 });
+
+// ---------------------------------------------------------------------------
+// The UI
+// ---------------------------------------------------------------------------
+
+/**
+ * Serve the built UI from this process.
+ *
+ * This is the one-action startup. Before it, running the app took two terminals — the API on
+ * 5173 and `vite` on 5174 — and opening the wrong one showed a blank page. One process now
+ * answers both, so `bun run start:ui` is the whole instruction.
+ *
+ * Registered AFTER every `/api/*` route, deliberately: `serveStatic` is mounted on `/*` and
+ * Hono matches in registration order, so a static handler registered first would try to serve
+ * `/api/review` as a file and 404 it.
+ *
+ * Two registrations, not one. The wildcard serves real files (`/assets/logo.svg`,
+ * `/main-abc123.js`); the second answers every other path with `index.html`, which is what makes
+ * a deep link like `/settings` work on a fresh load rather than 404. The app has no router, but
+ * a reload on any URL still has to boot.
+ *
+ * A missing `dist/ui` is not fatal: the API is useful on its own (and is what the tests drive),
+ * so this logs the one command that fixes it and carries on.
+ */
+if (existsSync(UI_DIR)) {
+  app.use("/*", serveStatic({ root: UI_DIR }));
+  app.get("*", serveStatic({ path: join(UI_DIR, "index.html") }));
+} else {
+  console.log(`[prep] no built UI at ${UI_DIR} — run \`bun run build:ui\` to serve the app from this port`);
+}
 
 const PORT = Number(process.env.PORT ?? 5173);
 

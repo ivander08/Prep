@@ -30,10 +30,13 @@ export type Milestone = {
 };
 
 /**
- * The ten milestones, in display order.
+ * The eighteen milestones, in display order.
  *
  * Every one is a fact this app already records, so none can be earned by clicking. The thresholds
  * are reachable inside a six-week sprint: a milestone you cannot plausibly reach is decoration.
+ * The later eight are the ones that only become reachable once a track has been used for a while
+ * (a second difficulty band, a whole list, a long streak), so they are ordered after the ones a
+ * first session can earn.
  */
 export const MILESTONES: Milestone[] = [
   {
@@ -85,6 +88,46 @@ export const MILESTONES: Milestone[] = [
     id: "ten-components",
     title: "Ten components built",
     requirement: "Pass ten distinct system-design components",
+  },
+  {
+    id: "first-medium-unaided",
+    title: "First Medium, unaided",
+    requirement: "Pass a Medium problem with no hints and no solution unlocked",
+  },
+  {
+    id: "solved-every-difficulty",
+    title: "All three bands",
+    requirement: "Pass an Easy, a Medium and a Hard problem",
+  },
+  {
+    id: "fifty-solved",
+    title: "50 solved",
+    requirement: "Solve 50 distinct problems",
+  },
+  {
+    id: "pattern-at-1600",
+    title: "Pattern at 1600 Elo",
+    requirement: "Reach 1600 Elo in any pattern",
+  },
+  {
+    id: "sql-fifty",
+    title: "SQL 50 complete",
+    requirement: "Pass all 50 problems in the SQL 50 list",
+  },
+  {
+    id: "ten-design-rounds",
+    title: "Ten design rounds",
+    requirement: "Complete ten graded design rounds",
+  },
+  {
+    id: "streak-100",
+    title: "Hundred-day streak",
+    requirement: "One hundred consecutive days of graded work",
+  },
+  {
+    id: "no-lapses-month",
+    title: "A clean month",
+    requirement: "Thirty days of graded work with no attempt graded Again",
   },
 ];
 
@@ -180,14 +223,99 @@ function evaluate(id: string): { met: boolean; progress: string | null } {
       return { met: n >= 10, progress: `${n}/10 built` };
     }
 
+    case "first-medium-unaided": {
+      const met = exists(
+        `SELECT 1 FROM attempts a JOIN problems p ON p.qid = a.qid
+         WHERE a.passed = 1 AND a.hints_used = 0 AND a.solution_unlocked = 0
+           AND p.difficulty = 'Medium'
+         LIMIT 1`,
+      );
+      return { met, progress: null };
+    }
+
+    case "solved-every-difficulty": {
+      // One query per band rather than one grouped query: a band with no passing attempt is
+      // absent from a GROUP BY result, so the count alone cannot distinguish "solved all three"
+      // from "solved two and never touched the third".
+      const bands = ["Easy", "Medium", "Hard"];
+      const solved = bands.filter((d) =>
+        exists(
+          `SELECT 1 FROM attempts a JOIN problems p ON p.qid = a.qid
+           WHERE a.passed = 1 AND p.difficulty = ? LIMIT 1`,
+          [d],
+        ),
+      );
+      return {
+        met: solved.length === bands.length,
+        progress: `${solved.length}/3 bands · ${bands.filter((d) => !solved.includes(d)).join(", ") || "none left"}`,
+      };
+    }
+
+    case "fifty-solved": {
+      const n = scalar("SELECT COUNT(DISTINCT qid) AS n FROM attempts WHERE passed = 1");
+      return { met: n >= 50, progress: `${n}/50 solved` };
+    }
+
+    case "pattern-at-1600": {
+      const max = scalar("SELECT COALESCE(MAX(elo), 0) AS n FROM pattern_mastery");
+      return { met: max >= 1600, progress: `${Math.round(max)}/1600 Elo` };
+    }
+
+    case "sql-fifty": {
+      // Counts against the list's 50 rows, so it reads `0/50` before the SQL track is used and
+      // is never an error. Only a PASSING attempt counts, and a passing attempt is only written
+      // by `/api/sql/run` after the reference query agreed.
+      const n = scalar(
+        `SELECT COUNT(DISTINCT l.qid) AS n FROM lists l
+         JOIN attempts a ON a.qid = l.qid AND a.passed = 1
+         WHERE l.name = 'sql50'`,
+      );
+      return { met: n >= 50, progress: `${n}/50 solved` };
+    }
+
+    case "ten-design-rounds": {
+      const n = scalar("SELECT COUNT(*) AS n FROM design_sessions WHERE grade IS NOT NULL");
+      return { met: n >= 10, progress: `${n}/10 graded rounds` };
+    }
+
+    case "streak-100": {
+      const best = streakStats().best;
+      return { met: best >= 100, progress: `${best}/100 days` };
+    }
+
+    case "no-lapses-month": {
+      // Active days come from the same `last_review` union the streak uses, so "a day of graded
+      // work" means the same thing here as it does on the Overview. The lapse count comes from
+      // `attempts.grade = 1` (Again), which is timestamped; `cards.lapses` is a lifetime counter
+      // with no per-event date, so it cannot answer "in the last thirty days".
+      const days = scalar(
+        `SELECT COUNT(*) AS n FROM (
+           SELECT DISTINCT date(last_review, 'localtime') AS day FROM cards
+             WHERE last_review IS NOT NULL
+           UNION
+           SELECT DISTINCT date(last_review, 'localtime') FROM item_cards
+             WHERE last_review IS NOT NULL
+         )
+         WHERE day >= date('now', 'localtime', '-30 days')`,
+      );
+      const lapses = scalar(
+        `SELECT COUNT(*) AS n FROM attempts
+         WHERE grade = 1 AND date(ended_at, 'localtime') >= date('now', 'localtime', '-30 days')`,
+      );
+      return {
+        met: days >= 30 && lapses === 0,
+        progress: `${days}/30 days · ${lapses} lapse${lapses === 1 ? "" : "s"}`,
+      };
+    }
+
     default:
       return { met: false, progress: null };
   }
 }
 
 /**
- * Evaluate every milestone and award any newly-satisfied one, returning all ten in display order
- * with their earned state.
+ * Evaluate every milestone and award any newly-satisfied one, returning all eighteen in display
+ * order with their earned state.
  */
 export function evaluateMilestones(): MilestoneState[] {
   const earned = new Map(

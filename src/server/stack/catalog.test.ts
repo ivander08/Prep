@@ -18,8 +18,8 @@ import {
 } from "./catalog.ts";
 
 describe("stack prompt catalogue", () => {
-  test("holds exactly eighteen prompts", () => {
-    expect(STACK_PROMPTS.length).toBe(18);
+  test("holds exactly twenty-seven prompts", () => {
+    expect(STACK_PROMPTS.length).toBe(27);
   });
 
   test("slugs are unique", () => {
@@ -48,9 +48,13 @@ describe("stack prompt catalogue", () => {
     }
   });
 
-  test("every group has exactly three prompts", () => {
+  test("every group has the expected number of prompts", () => {
     for (const group of GROUP_ORDER) {
-      expect({ group, n: STACK_PROMPTS.filter((p) => p.group === group).length }).toEqual({ group, n: 3 });
+      const expected = group === "language-depth" ? 12 : 3;
+      expect({ group, n: STACK_PROMPTS.filter((p) => p.group === group).length }).toEqual({
+        group,
+        n: expected,
+      });
     }
   });
 

@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Prep">
+  <!--
+    The Prep mark: a solid monogram on the instrument-panel palette the app declares (the `ink`
+    ground, the `signal` mark, `signal-dim` scale marks). Square corners throughout.
+
+    Solid fills, not hairlines: the same file is the 16px favicon, and at that size a hairline
+    letterform collapses into a smudge while a filled one still reads.
+
+    The stem is heavy and carries graduation ticks, so the letter doubles as a scale. The bowl is
+    a single square-cornered rectangle, and the signal block sits in its counter. The ground is
+    kept rather than made transparent because a favicon needs one: on a light browser theme a
+    transparent mark would be gold on white, which is the one place this palette fails.
+  -->
+  <rect width="512" height="512" fill="#101215"/>
+
+  <!-- The P: a heavy stem and one square-cornered bowl, drawn as one even-odd path so the
+       counter is a true hole rather than a second ink-coloured rectangle. -->
+  <path fill="#E8B84B" fill-rule="evenodd"
+        d="M132 96 H380 V304 H188 V416 H132 Z
+           M188 152 V248 H324 V152 Z"/>
+
+  <!-- The signal: the app's "passed" indicator, sitting in the counter. -->
+  <rect x="234" y="178" width="44" height="44" fill="#E8B84B"/>
+
+  <!-- Graduation ticks off the stem, dim so they never compete with the letterform. -->
+  <g fill="#8A6D2C">
+    <rect x="188" y="340" width="52" height="12"/>
+    <rect x="188" y="378" width="52" height="12"/>
+    <rect x="188" y="404" width="96" height="12"/>
+  </g>
+</svg>

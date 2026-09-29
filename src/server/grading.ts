@@ -18,6 +18,7 @@ import { parseArgs, parseExpected, type IoPair } from "./iocases.ts";
 import { verifierFor } from "./verifiers.ts";
 import { runInLanguage } from "./runner.ts";
 import type { ProblemMeta } from "./executor.ts";
+import { resourcePath } from "./paths.ts";
 
 export type IoCaseResult = {
   index: number;
@@ -150,7 +151,7 @@ export function prepareSuite(slug: string, ioJson: string, meta: ProblemMeta | n
 }
 
 const PY_IO_HARNESS = async (code: string, payloadB64: string, fn: string): Promise<string> => {
-  const template = await Bun.file(join(import.meta.dir, "harnesses/io_check.py.txt")).text();
+  const template = await Bun.file(resourcePath("harnesses/io_check.py.txt")).text();
   return template
     .replace("__USER_CODE__", code)
     .replace("__PAYLOAD_B64__", payloadB64)

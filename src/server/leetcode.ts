@@ -166,6 +166,38 @@ export async function fetchProblem(titleSlug: string): Promise<ProblemDetail> {
   return data.question;
 }
 
+/**
+ * The SQL variant of `PROBLEM_QUERY`.
+ *
+ * `isPaidOnly` is requested here and not above because the SQL 50 list is graded by execution
+ * against a locally seeded database: a Premium problem has no seed data to run, so the
+ * ingest has to know before it stores a row it cannot grade. All 50 SQL 50 problems are free,
+ * but the field is what proves it rather than an assumption.
+ */
+export const SQL_QUERY = `
+query questionData($titleSlug: String!) {
+  question(titleSlug: $titleSlug) {
+    questionFrontendId
+    title
+    difficulty
+    content
+    exampleTestcases
+    metaData
+    isPaidOnly
+    codeSnippets { langSlug code }
+  }
+}`;
+
+export type SqlProblemDetail = ProblemDetail & { isPaidOnly: boolean };
+
+export async function fetchSqlProblem(titleSlug: string): Promise<SqlProblemDetail> {
+  const data = await gql<{ question: SqlProblemDetail | null }>(SQL_QUERY, { titleSlug });
+  if (!data.question) throw new LeetCodeError(`problem not found: ${titleSlug}`, 404, "");
+  return data.question;
+}
+
+export { POLITE_DELAY_MS };
+
 // ---------------------------------------------------------------------------
 // Study plans (LeetCode's own lists)
 // ---------------------------------------------------------------------------

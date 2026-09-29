@@ -199,6 +199,9 @@ textarea { font-family: var(--mono); resize: vertical; }
 }
 
 .brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   font-family: var(--din);
   font-size: 15px;
   font-weight: 700;
@@ -209,6 +212,9 @@ textarea { font-family: var(--mono); resize: vertical; }
   color: var(--text);
 }
 .brand span { color: var(--signal); }
+/* The mark carries its own ink ground, so it needs no border; `display: block` removes the
+   inline-image baseline gap that otherwise pushes the wordmark off-centre. */
+.brand img { display: block; flex: none; }
 
 .nav { display: flex; flex-direction: column; }
 
@@ -563,6 +569,44 @@ pre.notice {
    rather than dimming it into the background with the rest of the muted text. */
 .problem-row.milestone.earned .sub { color: var(--dim); }
 
+/* The divider row between earned and open milestones. Not a button — it has no `onClick` and
+   renders as a plain div — so it takes no hover edge and no pointer. The rule above and below
+   is what separates the two halves without a second heading in the page outline. */
+.problem-row.milestone-group {
+  background: none;
+  border-left-color: transparent;
+  border-top: 1px solid var(--rule);
+  cursor: default;
+}
+.problem-row.milestone-group .qid { color: var(--faint); font-variant-numeric: tabular-nums; }
+.problem-row.milestone-group .title { color: var(--dim); }
+
+/* A SQL result grid. One row per result row, cells as monospace columns. `auto` columns so a
+   wide value is not clipped, and `min-width` so a single-column result still reads as a table
+   rather than a stray word. Rows are `fit-content`: with `flex` alone a one-column result drew
+   a 120px cell followed by empty space to the edge of the panel, which reads as a missing
+   column. */
+.sql-result { display: block; overflow-x: auto; }
+.table .sql-row,
+.sql-row {
+  display: flex;
+  width: fit-content;
+  min-width: 100%;
+  border-bottom: 1px solid var(--rule);
+}
+.sql-row:last-child { border-bottom: none; }
+.sql-row:first-child { color: var(--dim); }
+.table .sql-row > span,
+.sql-row > span {
+  flex: none;
+  min-width: 120px;
+  padding: 5px 10px;
+  font-size: 12px;
+  white-space: nowrap;
+  border-right: 1px solid var(--rule);
+}
+.sql-row > span:last-child { border-right: none; }
+
 /* Difficulty as a small caps tag, not a pill. */
 .badge {
   font-family: var(--din);
@@ -611,6 +655,21 @@ pre.notice {
   gap: 7px;
   color: var(--faint);
 }
+
+/* The weekly history bars. Two bars in the same cell, stacked: solved above attempts, sharing
+   one scale so a week where you ran a lot and solved little is visibly that. The track grows to
+   hold both rather than overlaying them — an overlay would make the shorter bar unreadable
+   exactly when it is the interesting one. */
+.history-row .name { font-size: 11px; }
+.progress-row .history-track {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  height: 12px;
+}
+.progress-row .history-track .fill { height: 4px; }
+.progress-row .history-track .history-attempts { background: var(--rule); }
 
 /* Premium-only problems are counted, not hidden — a finished list should read as finished,
    and the reason it cannot be fully opened should be visible. */

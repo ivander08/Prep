@@ -8,6 +8,7 @@ import { go } from "@codemirror/lang-go";
 import { java } from "@codemirror/lang-java";
 import { javascript } from "@codemirror/lang-javascript";
 import { python } from "@codemirror/lang-python";
+import { sql, SQLite } from "@codemirror/lang-sql";
 import { HighlightStyle, syntaxHighlighting, type LanguageSupport } from "@codemirror/language";
 import { lintGutter, setDiagnostics } from "@codemirror/lint";
 import { tags as t } from "@lezer/highlight";
@@ -55,6 +56,9 @@ const SYNTAX: Record<string, () => LanguageSupport> = {
   java: () => java(),
   cpp: () => cpp(),
   go: () => go(),
+  // `SQLite`, not the default dialect: the query is about to run on the SQLite engine inside
+  // Bun, so the keywords the editor colours as valid are the ones the grader actually accepts.
+  sql: () => sql({ dialect: SQLite }),
 };
 
 function syntaxFor(language: string | undefined): LanguageSupport {

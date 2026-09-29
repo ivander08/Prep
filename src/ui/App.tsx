@@ -13,9 +13,15 @@ import { CaseTabs } from "./components/CaseTabs";
 import { FundamentalsView } from "./components/FundamentalsView";
 import { DesignView } from "./components/DesignView";
 import { ComponentsView } from "./components/ComponentsView";
+import { SqlView } from "./components/SqlView";
 import { TipsPanel } from "./components/TipsPanel";
 import { Row } from "./components/Row";
 import { ProseTrackView } from "./components/ProseTrackView";
+import { NAV_SHORTCUTS, typingTarget } from "./shortcuts";
+// Imported, not referenced by URL: Vite rewrites the path to the hashed filename at build time,
+// so a literal `/assets/logo.svg` would 404 in production. The favicon in `index.html` is
+// rewritten by the same mechanism.
+import logoUrl from "./assets/logo.svg";
 import {
   api,
   ApiError,
@@ -62,6 +68,7 @@ const NAV: Array<{ label: string; items: Array<readonly [View, string]> }> = [
       ["fundamentals", "Fundamentals"],
       ["design", "Design"],
       ["components", "Build"],
+      ["sql", "SQL"],
       ["behavioral", "Behavioral"],
       ["stack", "Stack"],
     ],
@@ -98,8 +105,48 @@ type View =
   | "fundamentals"
   | "design"
   | "components"
+  | "sql"
   | "behavioral"
   | "stack";
+
+/**
+ * The `g` chord, wired from the shared table in `shortcuts.ts`.
+ *
+ * The pending flag is a closure variable rather than state: nothing renders from it, and putting
+ * it in state would re-render the whole app on the `g`. The chord is abandoned on any key that
+ * is not a mapping, and after 1.5 s — without the timeout a `g` typed an hour ago would still be
+ * pending and the next stray letter would navigate away from whatever you were reading.
+ */
+function useNavShortcuts(open: (view: View) => void): void {
+  useEffect(() => {
+    let pending = 0;
+
+    const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (typingTarget(document.activeElement)) return;
+
+      if (e.key === "g") {
+        pending = Date.now();
+        return;
+      }
+
+      if (pending && Date.now() - pending < 1500) {
+        pending = 0;
+        const hit = NAV_SHORTCUTS.find((s) => s.key === e.key.toLowerCase());
+        if (hit) {
+          e.preventDefault();
+          open(hit.view as View);
+        }
+        return;
+      }
+
+      pending = 0;
+    };
+
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
+}
 
 export function App() {
   const [view, setView] = useState<View>("overview");
@@ -201,6 +248,19 @@ export function App() {
     void loadProgress();
   }, [refreshLists, loadDue, loadProgress]);
 
+  /**
+   * The navigation chords. The same resets an explicit nav click performs, so `g b` does not
+   * re-open whatever round was last finished and `g q` does not jump to a due item's problem.
+   */
+  const onShortcut = useCallback((next: View) => {
+    setComponentSlug(null);
+    setTrackTarget(null);
+    setView(next);
+    setNavOpen(false);
+  }, []);
+
+  useNavShortcuts(onShortcut);
+
   const onSolved = useCallback(() => {
     void refreshLists();
     void loadDue();
@@ -241,6 +301,12 @@ export function App() {
 
       <aside className={`sidebar${navOpen ? " open" : ""}`}>
         <div className="brand">
+          {/*
+            `aria-hidden` because the adjacent text already names the app: a screen reader that
+            also read the SVG's label would say "Prep Prep". The mark is decoration over a label,
+            not a second label.
+          */}
+          <img src={logoUrl} alt="" aria-hidden="true" width={22} height={22} />
           <span>Prep</span>
         </div>
 
@@ -346,6 +412,13 @@ export function App() {
           <ComponentsView initialSlug={trackTarget?.kind === "component" ? trackTarget.ref : componentSlug} onSolved={onSolved} />
         ) : null}
 
+        {view === "sql" ? (
+          <SqlView
+            initialSlug={trackTarget?.kind === "sql" ? trackTarget.ref : null}
+            onSolved={onSolved}
+          />
+        ) : null}
+
         {view === "behavioral" ? (
           <ProseTrackView
             kind="behavioral"
@@ -405,6 +478,10 @@ function Overview({
   onOpenTrack: (item: DueTrackItem) => void;
 }) {
   const totalSolved = useMemo(() => lists.reduce((a, l) => a + l.solved, 0), [lists]);
+
+  const earnedMilestones = useMemo(() => milestones.filter((m) => m.earnedAt), [milestones]);
+  const unearnedMilestones = useMemo(() => milestones.filter((m) => !m.earnedAt), [milestones]);
+  const pctEarned = milestones.length > 0 ? Math.round((earnedMilestones.length / milestones.length) * 100) : 0;
 
   /**
    * Local today, as `YYYY-MM-DD`. Matches the server's own local bucketing; `toISOString` would
@@ -521,12 +598,28 @@ function Overview({
         Earned once, from what the attempt log actually records. Nothing here can be claimed — each
         row is a query over graded work.
       </p>
+      {/*
+        Two lists, not one flat one. At ten rows the flat list was readable; at eighteen the
+        unearned ones are the only ones with anything to say (each carries its standing), and
+        they were buried under the earned ones. The count is shown because the set is now large
+        enough that "how many are left" is the question the header should answer.
+      */}
       <div className="table">
-        {milestones.map((m) => (
-          <div key={m.id} className={`problem-row milestone${m.earnedAt ? " earned" : ""}`}>
-            <span className="qid">{m.earnedAt ? "✓" : "·"}</span>
+        <div className="problem-row milestone-group">
+          <span className="qid">{earnedMilestones.length}</span>
+          <span className="title">
+            <span>Earned</span>
+            <span className="muted small sub">
+              {earnedMilestones.length}/{milestones.length}
+            </span>
+          </span>
+          <span className="muted small mono">{pctEarned}%</span>
+        </div>
+        {earnedMilestones.map((m) => (
+          <div key={m.id} className="problem-row milestone earned">
+            <span className="qid">✓</span>
             <span className="title">
-              <span className={m.earnedAt ? undefined : "muted"}>{m.title}</span>
+              <span>{m.title}</span>
               {/*
                 The requirement stays on an earned row, and is not replaced by the date. It is
                 the only place the milestone's threshold is written down, so dropping it once
@@ -536,10 +629,27 @@ function Overview({
               <span className="muted small sub">{m.requirement}</span>
             </span>
             <span className="muted small mono">
-              {m.earnedAt
-                ? new Date(m.earnedAt).toLocaleDateString()
-                : (m.progress ?? "")}
+              {m.earnedAt ? new Date(m.earnedAt).toLocaleDateString() : ""}
             </span>
+          </div>
+        ))}
+
+        <div className="problem-row milestone-group">
+          <span className="qid">{unearnedMilestones.length}</span>
+          <span className="title">
+            <span>Still open</span>
+            <span className="muted small sub">each row shows where you stand</span>
+          </span>
+          <span className="muted small mono">{unearnedMilestones.length}</span>
+        </div>
+        {unearnedMilestones.map((m) => (
+          <div key={m.id} className="problem-row milestone">
+            <span className="qid">·</span>
+            <span className="title">
+              <span className="muted">{m.title}</span>
+              <span className="muted small sub">{m.requirement}</span>
+            </span>
+            <span className="muted small mono">{m.progress ?? ""}</span>
           </div>
         ))}
       </div>
@@ -559,6 +669,22 @@ function Review({
   onOpenTrack: (item: DueTrackItem) => void;
   onRefresh: () => void;
 }): React.JSX.Element {
+  /**
+   * `null` is "All", not the string "all": a kind named "all" would be indistinguishable from
+   * the absence of a filter, and `DUE_TRACK_LABEL` is a total map so every real kind is a key.
+   */
+  const [kind, setKind] = useState<DueTrack | null>(null);
+
+  // The chips come from the due list, not from a hardcoded list of every kind. A filter chip for
+  // a track with nothing due narrows the list to an empty screen and reads as a broken filter.
+  const kinds = useMemo(() => {
+    const counts = new Map<DueTrack, number>();
+    for (const d of due) counts.set(d.kind, (counts.get(d.kind) ?? 0) + 1);
+    return [...counts.entries()].sort((a, b) => b[1] - a[1]);
+  }, [due]);
+
+  const shown = useMemo(() => (kind ? due.filter((d) => d.kind === kind) : due), [due, kind]);
+
   return (
     <>
       <div className="spread">
@@ -570,11 +696,29 @@ function Review({
         Everything scheduled across every track, oldest due first. A grade is derived from
         behaviour — tests passing, or a rubric quoting your own words.
       </p>
-      {due.length === 0 ? (
-        <div className="empty">Nothing due. Solve something and it returns on a schedule — 4 days, then 34, then 89.</div>
+
+      {kinds.length > 1 ? (
+        <div className="filters">
+          <button className={kind === null ? "primary" : ""} onClick={() => setKind(null)}>
+            All <span className="mono muted small">{due.length}</span>
+          </button>
+          {kinds.map(([k, n]) => (
+            <button key={k} className={kind === k ? "primary" : ""} onClick={() => setKind(k)}>
+              {DUE_TRACK_LABEL[k]} <span className="mono muted small">{n}</span>
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      {shown.length === 0 ? (
+        <div className="empty">
+          {due.length === 0
+            ? "Nothing due. Solve something and it returns on a schedule — 4 days, then 34, then 89."
+            : `Nothing due in ${DUE_TRACK_LABEL[kind!]}.`}
+        </div>
       ) : (
         <div className="table">
-          {due.map((d) => (
+          {shown.map((d) => (
             <Row key={`${d.kind}:${d.ref}`} onClick={() => onOpenTrack(d)}>
               {/*
                 The first cell holds the track label, not a number. Which track a row belongs to

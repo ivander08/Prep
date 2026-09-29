@@ -247,7 +247,15 @@ export function reviewDesign(
 }
 
 /** Which track a due item belongs to. Drives the row's badge and where clicking it goes. */
-export type DueTrack = "dsa" | "pattern" | "concept" | "component" | "design" | "behavioral" | "stack";
+export type DueTrack =
+  | "dsa"
+  | "pattern"
+  | "concept"
+  | "component"
+  | "design"
+  | "behavioral"
+  | "stack"
+  | "sql";
 
 /**
  * Every item due for review, across every track, oldest-due first.
@@ -319,6 +327,23 @@ export function reviewProse(
   now = new Date(),
 ): { due: Date; intervalDays: number } {
   return reviewItem(ensureKindItem(kind, slug, title, null), grade, now);
+}
+
+/**
+ * Schedule a SQL 50 problem.
+ *
+ * A fourth sibling. The SQL track grades by execution like the DSA track, but it is not a DSA
+ * problem: it has no `qid` row of its own in `cards` (a problem can be solved in several
+ * languages and the SQL answer is not a LeetCode submission), so it lives in `items`/
+ * `item_cards` with the other non-DSA kinds.
+ */
+export function reviewSql(
+  slug: string,
+  title: string,
+  grade: Grade,
+  now = new Date(),
+): { due: Date; intervalDays: number } {
+  return reviewItem(ensureKindItem("sql", slug, title, null), grade, now);
 }
 
 /**

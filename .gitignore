@@ -7,6 +7,12 @@ node_modules/
 # Build output
 dist/
 
+# Rust build output (the Tauri shell). `Cargo.lock` and `icons/` ARE committed: this is an
+# application, so the lockfile is the reproducible build, and the icons are generated from
+# `src/ui/assets/logo.svg` but are checked in because `tauri build` reads them directly.
+src-tauri/target/
+src-tauri/gen/
+
 # Secrets
 .env
 .env.local

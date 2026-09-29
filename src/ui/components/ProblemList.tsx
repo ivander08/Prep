@@ -19,6 +19,16 @@ export type ListProblem = {
 type SortKey = "position" | "difficulty" | "acceptance" | "title" | "attempts";
 type GroupKey = "none" | "pattern" | "difficulty" | "status";
 
+/** A catalog-wide search hit. A subset of `ListProblem`: no position, since it is in no list. */
+type CatalogHit = {
+  qid: number;
+  slug: string;
+  title: string;
+  difficulty: "Easy" | "Medium" | "Hard";
+  pattern: string | null;
+  solved: number;
+};
+
 const DIFFICULTY_ORDER: Record<string, number> = { Easy: 0, Medium: 1, Hard: 2 };
 
 const SORTS: Array<{ key: SortKey; label: string }> = [
@@ -42,6 +52,10 @@ const GROUPS: Array<{ key: GroupKey; label: string }> = [
  * Everything is derived client-side from one fetch, so changing a filter or sort does not
  * hit the network. The list is capped at 2000 rows server-side, which covers every curated
  * list (the largest is NeetCode All at 450).
+ *
+ * The header also carries a catalog-wide search, which is a different question from the filter
+ * box: the filter narrows THIS list, the catalog search finds a problem in any of the 4,068 —
+ * most of which are in no curated list at all, and were previously unreachable from the UI.
  */
 export function ProblemList({ listName, onOpen }: { listName: string; onOpen: (slug: string) => void }) {
   const [problems, setProblems] = useState<ListProblem[]>([]);
@@ -52,6 +66,11 @@ export function ProblemList({ listName, onOpen }: { listName: string; onOpen: (s
   const [pattern, setPattern] = useState<string>("all");
   const [search, setSearch] = useState("");
   const [error, setError] = useState<string | null>(null);
+
+  /** The catalog search: its own query and its own results, independent of the list filters. */
+  const [catalogQuery, setCatalogQuery] = useState("");
+  const [catalogHits, setCatalogHits] = useState<CatalogHit[] | null>(null);
+  const [catalogBusy, setCatalogBusy] = useState(false);
 
   const load = useCallback(async (name: string) => {
     try {
@@ -68,6 +87,31 @@ export function ProblemList({ listName, onOpen }: { listName: string; onOpen: (s
     void load(listName);
   }, [listName, load]);
 
+  /**
+   * The catalog search, debounced.
+   *
+   * 180 ms: long enough that typing a word is one request rather than one per letter, short
+   * enough that it still feels like it is keeping up. The cleanup cancels the timer, so the
+   * in-flight request for a half-typed word never resolves into the results.
+   */
+  useEffect(() => {
+    const q = catalogQuery.trim();
+    if (q.length === 0) {
+      setCatalogHits(null);
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      setCatalogBusy(true);
+      api<{ problems: CatalogHit[] }>(`/api/problems/search?q=${encodeURIComponent(q)}&limit=40`)
+        .then((r) => setCatalogHits(r.problems))
+        .catch(() => setCatalogHits([]))
+        .finally(() => setCatalogBusy(false));
+    }, 180);
+
+    return () => clearTimeout(timer);
+  }, [catalogQuery]);
+
   const patterns = useMemo(() => {
     const set = new Set<string>();
     for (const p of problems) if (p.pattern) set.add(p.pattern);
@@ -82,7 +126,7 @@ export function ProblemList({ listName, onOpen }: { listName: string; onOpen: (s
       if (status === "solved" && p.solved !== 1) return false;
       if (status === "unsolved" && p.solved === 1) return false;
       if (status === "attempted" && p.attempts === 0) return false;
-      if (q && !p.title.toLowerCase().includes(q) && !String(p.qid).includes(q)) return false;
+      if (q && !p.title.toLowerCase().includes(q) && !p.slug.toLowerCase().includes(q) && !String(p.qid).includes(q)) return false;
       return true;
     });
 
@@ -139,10 +183,54 @@ export function ProblemList({ listName, onOpen }: { listName: string; onOpen: (s
     <>
       <div className="spread">
         <h1>{listName}</h1>
-        <span className="mono muted small">
-          {filtered.length} shown · {solvedCount} solved
-        </span>
+        <div className="row">
+          {/*
+            The catalog search sits in the header, not in the filter bar: it searches a different
+            set (all 4,068 problems) from the filters below it (this list), and putting it in the
+            same row would imply it narrows the list under it.
+          */}
+          <input
+            className="filter-input"
+            placeholder="Search all 4,068 problems…"
+            value={catalogQuery}
+            onChange={(e) => setCatalogQuery(e.target.value)}
+            aria-label="Search the whole catalog"
+          />
+          <span className="mono muted small">
+            {filtered.length} shown · {solvedCount} solved
+          </span>
+        </div>
       </div>
+
+      {catalogHits !== null ? (
+        <div className="card stack-sm" style={{ marginBottom: 14 }}>
+          <div className="spread">
+            <span className="muted small">
+              {catalogBusy
+                ? "Searching the catalog…"
+                : `${catalogHits.length} match${catalogHits.length === 1 ? "" : "es"} in the catalog` +
+                  (catalogHits.length === 40 ? " (first 40)" : "")}
+            </span>
+            <button onClick={() => setCatalogQuery("")}>Clear</button>
+          </div>
+          {catalogHits.length === 0 && !catalogBusy ? (
+            <div className="empty">Nothing in the catalog matches that.</div>
+          ) : (
+            <div className="table" style={{ border: "none" }}>
+              {catalogHits.map((p) => (
+                <Row key={p.qid} className={p.solved ? "solved" : ""} onClick={() => onOpen(p.slug)}>
+                  <span className="qid">{p.qid}</span>
+                  <span className="title">
+                    {p.title}
+                    {p.pattern ? <span className="muted small"> · {p.pattern}</span> : null}
+                  </span>
+                  <span className={`badge ${p.difficulty}`}>{p.difficulty}</span>
+                </Row>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : null}
 
       <div className="filters">
         <input

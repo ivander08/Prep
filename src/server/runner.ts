@@ -15,6 +15,7 @@ import { writeFile, rm, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { LANGUAGES, languageById, type LanguageId } from "./languages.ts";
+import { resourcePath } from "./paths.ts";
 
 export type ParamSpec = { name: string; type: string };
 export type ProblemMeta = { name: string; params: ParamSpec[]; return?: { type: string } };
@@ -230,7 +231,7 @@ async function javaProgram(code: string, payload: Payload): Promise<string> {
     .map((c) => c.args.map(encodeJavaValue).join("\u001f") + "\u001e" + encodeJavaValue(c.expected))
     .join("\n");
 
-  const template = await Bun.file(join(import.meta.dir, "harnesses/Main.java.txt")).text();
+  const template = await Bun.file(resourcePath("harnesses/Main.java.txt")).text();
   return template
     .replace("__PAYLOAD_B64__", Buffer.from(cases, "utf8").toString("base64"))
     .replace("__FN__", payload.fn)
@@ -318,7 +319,7 @@ function cppRender(retType: string): string | null {
 }
 
 async function cppProgram(code: string, payload: Payload, meta: ProblemMeta | null): Promise<string> {
-  const template = await Bun.file(join(import.meta.dir, "harnesses/main.cpp.txt")).text();
+  const template = await Bun.file(resourcePath("harnesses/main.cpp.txt")).text();
   const b64 = Buffer.from(payloadLiteral(payload), "utf8").toString("base64");
 
   const unpack = cppUnpack(meta);

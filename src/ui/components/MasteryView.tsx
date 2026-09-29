@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { api } from "../api";
+import { api, type ProgressWeek } from "../api";
 
 type MasteryRow = {
   pattern: string;
@@ -78,6 +78,7 @@ function Graticule({ elo }: { elo: number }) {
  */
 export function MasteryView() {
   const [data, setData] = useState<MasteryResponse | null>(null);
+  const [history, setHistory] = useState<ProgressWeek[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -86,6 +87,12 @@ export function MasteryView() {
       setError(null);
     } catch (e) {
       setError(String(e));
+    }
+    try {
+      const h = await api<{ weeks: ProgressWeek[] }>("/api/progress/history?weeks=12");
+      setHistory(h.weeks);
+    } catch {
+      // The history is a secondary readout; a failure here must not blank the mastery tables.
     }
   }, []);
 
@@ -97,6 +104,13 @@ export function MasteryView() {
   if (!data) return <div className="spinner">Computing mastery…</div>;
 
   const { patterns, hintDependence, stats } = data;
+
+  // One scale for both bars, so solved and attempts are comparable within a week and across the
+  // window. The floor is 1 rather than 0 so a week with a single solve still draws a visible bar.
+  const peak = Math.max(1, ...history.map((w) => Math.max(w.solved, w.attempts)));
+  const totalSolved = history.reduce((a, w) => a + w.solved, 0);
+  const totalAttempts = history.reduce((a, w) => a + w.attempts, 0);
+  const activeWeeks = history.filter((w) => w.attempts > 0).length;
 
   return (
     <>
@@ -131,6 +145,47 @@ export function MasteryView() {
           </span>
         </div>
       </div>
+
+      {history.length > 0 ? (
+        <>
+          <h2>Progress over time</h2>
+          <p className="muted small">
+            The last twelve weeks, Monday-aligned. <strong>Solved</strong> counts distinct problems
+            you passed that week; <strong>attempts</strong> counts everything you ran, passing or
+            not. A week with no bar is a week with nothing recorded, not a week that was skipped in
+            the data.
+          </p>
+          <div className="table">
+            {history.map((w) => (
+              <div key={w.weekStart} className="progress-row history-row">
+                <span className="name mono">{w.weekStart}</span>
+                <span className="track history-track">
+                  <span
+                    className="fill"
+                    style={{ width: `${(w.solved / peak) * 100}%` }}
+                    title={`${w.solved} solved`}
+                  />
+                  <span
+                    className="fill history-attempts"
+                    style={{ width: `${(w.attempts / peak) * 100}%` }}
+                    title={`${w.attempts} attempts`}
+                  />
+                </span>
+                <span className="mono tally">
+                  {w.solved}/{w.attempts}
+                </span>
+                <span className="mono pct">
+                  {w.activeDays > 0 ? `${w.activeDays}d` : "—"}
+                </span>
+              </div>
+            ))}
+          </div>
+          <p className="muted small">
+            {totalSolved} solved across {totalAttempts} attempts, in {activeWeeks} of{" "}
+            {history.length} weeks.
+          </p>
+        </>
+      ) : null}
 
       {patterns.length === 0 ? (
         <div className="card muted" style={{ marginTop: 18 }}>

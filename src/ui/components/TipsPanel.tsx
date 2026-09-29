@@ -9,6 +9,9 @@
  *
  * Closed by default. It is reference, not a nag.
  */
+
+import { NAV_SHORTCUTS } from "../shortcuts";
+
 export const INTERVIEW_TIPS: Array<{ title: string; body: string }> = [
   {
     title: "Clarify before you design",
@@ -53,23 +56,49 @@ export const INTERVIEW_TIPS: Array<{ title: string; body: string }> = [
  *
  * A heading and a table, not a button and a table, so it reads as a section of the page like
  * "Milestones" and "Due now" do.
+ *
+ * The keyboard list is rendered from `NAV_SHORTCUTS` in `src/ui/shortcuts.ts`, which is the same
+ * table the app's keydown handler reads. A copy here would drift into a shortcut that is
+ * advertised and does not work, which is the failure a shortcut list is most prone to.
  */
 export function TipsPanel() {
   return (
-    <section className="stack-lg">
-      <h2>Interview technique</h2>
-      <p className="muted small">
-        What to do in the round regardless of which algorithm the problem wants. The same eight
-        habits every time.
-      </p>
-      <div className="table">
-        {INTERVIEW_TIPS.map((t) => (
-          <div key={t.title} className="tip-row">
-            <span className="tip-title">{t.title}</span>
-            <span className="tip-body">{t.body}</span>
+    <>
+      <section className="stack-lg">
+        <h2>Interview technique</h2>
+        <p className="muted small">
+          What to do in the round regardless of which algorithm the problem wants. The same eight
+          habits every time.
+        </p>
+        <div className="table">
+          {INTERVIEW_TIPS.map((t) => (
+            <div key={t.title} className="tip-row">
+              <span className="tip-title">{t.title}</span>
+              <span className="tip-body">{t.body}</span>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="stack-lg">
+        <h2>Keyboard</h2>
+        <p className="muted small">
+          Two-key chords, so they cannot fire while you are typing. A chord is ignored whenever an
+          input, a textarea or the code editor has focus.
+        </p>
+        <div className="table">
+          {NAV_SHORTCUTS.map((s) => (
+            <div key={s.key} className="tip-row">
+              <span className="tip-title mono">g {s.key}</span>
+              <span className="tip-body">{s.label}</span>
+            </div>
+          ))}
+          <div className="tip-row">
+            <span className="tip-title mono">Ctrl+Enter</span>
+            <span className="tip-body">Run the code in the editor</span>
           </div>
-        ))}
-      </div>
-    </section>
+        </div>
+      </section>
+    </>
   );
 }

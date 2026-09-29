@@ -1,14 +1,24 @@
 import { Database } from "bun:sqlite";
 import { readdirSync, readFileSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
+import { IS_COMPILED, RESOURCE_ROOT } from "./paths.ts";
 
 /**
  * The database path is overridable via PREP_DB_PATH so tests never touch the real one.
  * Tests that write to the live database are a bug: they corrupt the user's progress and
  * make their counts meaningless.
+ *
+ * The default differs by mode because a compiled binary cannot read `import.meta.dir` (see
+ * `paths.ts`). In dev it is the repo's `data/prep.db`, which is what every existing doc and
+ * script assumes. Compiled, it is `data/prep.db` beside the executable — next to `resources/`,
+ * not inside it, because `resources/` is shipped read-only from the build.
  */
-const DB_PATH = process.env.PREP_DB_PATH ?? join(import.meta.dir, "../../data/prep.db");
-const MIGRATIONS_DIR = join(import.meta.dir, "migrations");
+const DB_PATH =
+  process.env.PREP_DB_PATH ??
+  (IS_COMPILED
+    ? join(dirname(RESOURCE_ROOT), "data", "prep.db")
+    : join(import.meta.dir, "../../data/prep.db"));
+const MIGRATIONS_DIR = join(RESOURCE_ROOT, "migrations");
 
 mkdirSync(dirname(DB_PATH), { recursive: true });
 

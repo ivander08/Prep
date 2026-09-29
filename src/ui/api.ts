@@ -76,7 +76,7 @@ export type AttemptResponse = {
   intervalDays: number | null;
 };
 
-export type DueTrack = "dsa" | "pattern" | "concept" | "component" | "design" | "behavioral" | "stack";
+export type DueTrack = "dsa" | "pattern" | "concept" | "component" | "design" | "behavioral" | "stack" | "sql";
 
 /** One item due for review, from any track. */
 export type DueTrackItem = {
@@ -104,10 +104,11 @@ export const DUE_TRACK_LABEL: Record<DueTrack, string> = {
   design: "Design",
   behavioral: "Behavioral",
   stack: "Stack",
+  sql: "SQL",
 };
 
 /** Which nav view a due item opens. */
-export const DUE_TRACK_VIEW: Record<DueTrack, "list" | "roadmap" | "fundamentals" | "components" | "design" | "behavioral" | "stack"> = {
+export const DUE_TRACK_VIEW: Record<DueTrack, "list" | "roadmap" | "fundamentals" | "components" | "design" | "behavioral" | "stack" | "sql"> = {
   dsa: "list",
   pattern: "roadmap",
   concept: "fundamentals",
@@ -115,6 +116,7 @@ export const DUE_TRACK_VIEW: Record<DueTrack, "list" | "roadmap" | "fundamentals
   design: "design",
   behavioral: "behavioral",
   stack: "stack",
+  sql: "sql",
 };
 
 // ---------------------------------------------------------------------------
@@ -340,6 +342,63 @@ export const DIMENSION_PROBES: Record<RubricDimension, number[]> = {
 };
 
 // ---------------------------------------------------------------------------
+// SQL 50
+// ---------------------------------------------------------------------------
+
+export type SqlProblemSummary = {
+  qid: number;
+  slug: string;
+  title: string;
+  difficulty: "Easy" | "Medium" | "Hard";
+  position: number;
+  /** False when the statement and seed data were never fetched, so the problem cannot run. */
+  fetched: boolean;
+  solved: boolean;
+  attempts: number;
+};
+
+export type SqlProblemList = {
+  problems: SqlProblemSummary[];
+  total: number;
+  solved: number;
+  fetched: number;
+};
+
+export type SqlSeedTable = {
+  table: string;
+  columns: string[];
+  rows: Array<Array<string | number | null>>;
+};
+
+export type SqlProblemDetail = {
+  slug: string;
+  title: string;
+  difficulty: "Easy" | "Medium" | "Hard";
+  statementMd: string;
+  /** The problem's own DDL, one statement per table, as the grader will apply it. */
+  schema: string[];
+  seed: SqlSeedTable[];
+  caseCount: number;
+  /** True when the answer is a mutation, so the result panel labels the table state. */
+  mutating: boolean;
+  card: { due: string; reps: number; lapses: number } | null;
+};
+
+export type SqlRunResponse = {
+  passed: boolean;
+  userRows: unknown[][];
+  expectedRows: unknown[][];
+  error: string | null;
+  mutating: boolean;
+  /** The reference query, present only after a pass. */
+  reference: string | null;
+  grade: number;
+  nextDue: string | null;
+  intervalDays: number | null;
+  disclaimer: string;
+};
+
+// ---------------------------------------------------------------------------
 // Design concept library
 // ---------------------------------------------------------------------------
 
@@ -425,6 +484,18 @@ export type MilestoneState = {
   requirement: string;
   earnedAt: string | null;
   progress: string | null;
+};
+
+/** One week of activity, for the progress-over-time bars. */
+export type ProgressWeek = {
+  /** `YYYY-MM-DD`, the Monday the week starts on. */
+  weekStart: string;
+  /** Distinct problems with a passing attempt that week. */
+  solved: number;
+  /** Attempts recorded that week, passing or not. */
+  attempts: number;
+  /** Local days in the week with any graded event. */
+  activeDays: number;
 };
 
 // ---------------------------------------------------------------------------

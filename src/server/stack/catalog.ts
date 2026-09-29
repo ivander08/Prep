@@ -1,9 +1,10 @@
 /**
- * Engineering-depth prompts, the stack track. Eighteen questions about how a running system
- * behaves, in six groups. The prose is original; the mechanisms described are the ones any
- * production post-mortem or language specification names, and none of it is copied from a
- * book or an article. Held in code, like `design/catalog.ts`, `design/concepts.ts` and
- * `concepts/catalog.ts`, because a prose edit is then a source edit and not a migration.
+ * Engineering-depth prompts, the stack track. Twenty-seven questions about how a running
+ * system behaves, in six groups, twelve of them specific to the JVM, Go and the CLR. The prose
+ * is original; the mechanisms described are the ones any production post-mortem or language
+ * specification names, and none of it is copied from a book or an article. Held in code, like
+ * `design/catalog.ts`, `design/concepts.ts` and `concepts/catalog.ts`, because a prose edit is
+ * then a source edit and not a migration.
  * The answer key is here and must not reach the client. `lookFor` and `commonMistakes` score
  * a written answer, so the list endpoint serves only `{slug, group, title, summary}`;
  * `getStackPrompt` carries the key and stays server-side. No code runs here: the design
@@ -109,6 +110,204 @@ export const STACK_PROMPTS: StackPrompt[] = [
       "Confuses compile-time generics with a runtime class token and asserts the type parameter is inspectable.",
       "Says \"generics are just syntactic sugar\" without distinguishing checking from representation.",
       "Names no workaround for the case where a runtime check is genuinely needed.",
+    ],
+  },
+  {
+    slug: "generational-gc-and-promotion",
+    group: "language-depth",
+    title: "Generational collection and promotion",
+    statement:
+      "A JVM service allocates heavily per request, its young-generation collections stay cheap, and yet the tenured collection runs every few minutes and owns the tail latency. Explain why the young collections are cheap, and what has to be true of an object for it to end up in the old generation.",
+    summary:
+      "A generational collector bets that most objects die young, so survival — not wall-clock age — is what copies an object into the old generation and makes it expensive to reclaim.",
+    lookFor: [
+      "Names the bet: the weak generational hypothesis, that most objects die young, which is why the collector can scan only the young generation for most of its work.",
+      "Names why a minor collection is cheap: live objects are copied out of eden, the rest are reclaimed by resetting the allocation pointer, so the cost tracks survivors rather than garbage.",
+      "Names the promotion trigger: an object is promoted once it survives the tenuring threshold, or when a survivor space overflows, which is what moves it into the old generation.",
+      "Names what promotion costs: the object now lives in the old generation, where reclaiming it is a major collection whose cost scales with the whole live set rather than the young set.",
+      "Names the lever: a per-request buffer or a large intermediate collection that is still reachable at the next young collection is what promotes, so cutting retained size cuts the promotion rate.",
+      "Names the diagnostics: garbage-collection logs showing young and old collection counts and pause times, and an allocation profile that shows what is promoted rather than what is allocated.",
+    ],
+    commonMistakes: [
+      "Says an object is promoted because of its age in seconds, when the trigger is survival count and survivor-space pressure.",
+      "Reads the frequency of young collections as the problem and resizes the young generation, when the tail comes from the old collections.",
+      "Blames the collector for the pause without asking what was promoted and what keeps it reachable.",
+    ],
+  },
+  {
+    slug: "jit-warmup-and-benchmarks",
+    group: "language-depth",
+    title: "JIT warmup and benchmarking",
+    statement:
+      "A team benchmarks two implementations in one loop, runs the first and then the second, and reports that the second is faster. Explain why that number is not trustworthy, and what a benchmark has to do before its measurement means anything.",
+    summary:
+      "The JIT compiles the hot path after it has run for a while, so a measurement taken during interpretation and profile collection is measuring the interpreter rather than the code.",
+    lookFor: [
+      "Names the mechanism: methods start interpreted, the runtime collects profiling data, and a hot method is recompiled — often through several tiers — so performance keeps changing while the loop runs.",
+      "Names the consequence: the early iterations measure the interpreter, so an average over the whole loop depends on when it started and how long it ran rather than on the code.",
+      "Names the order bias: the second variant inherits a warm runtime and compiled call sites, so the comparison is confounded unless the order is alternated or each variant gets its own JVM.",
+      "Names dead-code elimination: the optimiser deletes a computation whose result is never observed, so a benchmark must consume and return its result.",
+      "Names the required structure: discarded warm-up iterations, then measured iterations, a separate JVM per variant, and a harness such as JMH rather than a hand-rolled `System.nanoTime()` loop.",
+      "Names deoptimisation: a compiled assumption can be invalidated by a class loaded later or by a changed type profile, so one long run can silently fall back to the interpreter.",
+    ],
+    commonMistakes: [
+      "Reports the average of every iteration, including the interpreted ones, as steady-state throughput.",
+      "Runs both variants in one JVM in a fixed order and calls the difference a speedup.",
+      "Writes a loop whose result is never read and never considers that the optimiser may have removed the work.",
+    ],
+  },
+  {
+    slug: "java-memory-model-and-volatile",
+    group: "language-depth",
+    title: "The memory model, volatile and synchronized",
+    statement:
+      "A boolean flag is written by one thread and read in a loop by another, and the reader never sees the update even though the write completed before the read began. Explain what the memory model guarantees about visibility and ordering, and what `volatile` and `synchronized` actually establish.",
+    summary:
+      "Each thread may cache and reorder freely, so visibility is a property of the synchronisation edges the program creates rather than of the write having happened.",
+    lookFor: [
+      "Names the problem: with no happens-before edge a read may see a stale value indefinitely, and the optimiser may hoist the flag read out of the loop entirely.",
+      "Names what `volatile` establishes: a write to the field is visible to a subsequent read of that field, and that pair creates a happens-before edge which also publishes everything written before the write.",
+      "Names what `volatile` does not give: it is not atomic for a read-modify-write, so a volatile counter incremented by two threads still loses updates and needs a monitor or an atomic type.",
+      "Names what `synchronized` establishes: monitor entry and exit create the same edge, so the whole critical section is published on exit and re-read on entry rather than one field.",
+      "Names the tooling: the `java.util.concurrent` atomics and compare-and-swap through `AtomicReference` or `VarHandle`, and safe publication of a fully constructed object through final fields.",
+      "Names the symptom that follows: a loop that terminates on one machine and spins forever on another, or a half-constructed object observed through a reference that was not published safely.",
+    ],
+    commonMistakes: [
+      "Treats `volatile` as a substitute for a lock and uses it to protect a compound update.",
+      "Asserts that a write is visible because it happened, naming no happens-before edge.",
+      "Confuses ordering with atomicity and cannot say which of the two the field actually needed.",
+    ],
+  },
+  {
+    slug: "go-scheduler-and-blocking-syscalls",
+    group: "language-depth",
+    title: "The Go scheduler and blocking syscalls",
+    statement:
+      "A Go service runs tens of thousands of goroutines over a handful of OS threads, and one goroutine makes a slow blocking filesystem call. Explain why the rest keep running, and what the runtime does with the goroutine that is stuck in the call.",
+    summary:
+      "The runtime multiplexes goroutines onto threads through its own scheduler, so a syscall that blocks a thread is handed off and the run queue keeps draining on another thread.",
+    lookFor: [
+      "Names the three parts: the goroutine (G), the OS thread (M) and the processor (P) that holds a run queue, and says a goroutine runs only while it holds a P.",
+      "Names the handoff: on entry to a blocking syscall the runtime detaches the P from the M and hands it to another thread, so scheduling continues while the call is in flight.",
+      "Names the consequence for the thread: the M is parked with its goroutine and is not reusable until the call returns, so many simultaneous blocking calls grow the thread count.",
+      "Names the runtime's own answers: the netpoller parks network waits without occupying a thread, and work stealing keeps an idle P fed from another P's queue.",
+      "Names the limits: `GOMAXPROCS` bounds the number of Ps and therefore the parallelism of Go code, and a `cgo` call or a syscall-heavy path is where threads are consumed rather than reused.",
+      "Names the diagnostic: a goroutine dump or execution trace showing goroutines in the syscall state, with the thread count as the signal that the handoff is being exercised.",
+    ],
+    commonMistakes: [
+      "Says a goroutine is a thread and that the runtime runs one per thread.",
+      "Claims a blocking syscall stops the whole runtime, when the P is handed to another thread.",
+      "Conflates `GOMAXPROCS` with the thread count, or with the number of goroutines that may exist.",
+    ],
+  },
+  {
+    slug: "escape-analysis-and-stack-allocation",
+    group: "language-depth",
+    title: "Escape analysis and stack allocation",
+    statement:
+      "A function returns a pointer to a local value and the program is correct, but a profile shows that value being allocated on the heap on every call. Explain how the compiler decides where a value lives, and what makes it move.",
+    summary:
+      "Escape analysis proves at compile time whether a value can outlive its frame, and anything it cannot prove stays on the stack, so the decision is the compiler's proof rather than the syntax.",
+    lookFor: [
+      "Names the analysis: the compiler builds a graph of the value's references and asks, at every call site it can see, whether any of them outlives the frame.",
+      "Names what escapes: returning a pointer, storing it in a field of a heap object, sending it on a channel, capturing it in a closure that outlives the frame, or passing it to a function the compiler cannot see into.",
+      "Names the proof: `go build -gcflags='-m'` prints the escape decisions, which is how the heap allocation is confirmed rather than guessed from a profile.",
+      "Names the cost: a stack allocation is a pointer bump freed with the frame, while a heap allocation is garbage-collection work, so the moved value costs allocation and collector pressure.",
+      "Names the fix pattern: pass the value rather than the pointer, avoid an interface conversion that hides the call site, and size the slice or map once instead of growing it.",
+      "Names the caveat: an interface conversion, a variadic call, or a `defer` over a captured variable can each force an escape, and each is visible in the same `-m` output.",
+    ],
+    commonMistakes: [
+      "Asserts that a local variable is always on the stack, or that `new` always means the heap.",
+      "Reads a heap allocation in a profile as the whole story and never checks the compiler's escape report.",
+      "Removes the allocation by hoisting the value to a package-level variable and turns one allocation into shared mutable state.",
+    ],
+  },
+  {
+    slug: "context-cancellation-and-leaks",
+    group: "language-depth",
+    title: "Context cancellation and goroutine leaks",
+    statement:
+      "A handler starts a goroutine that waits on a channel and then writes to a database, and after a deploy the process accumulates goroutines until it is restarted. Explain how cancellation is meant to propagate through a call tree, and what leaks when a goroutine ignores it.",
+    summary:
+      "A `context` carries cancellation and a deadline down the call tree, so a goroutine that ignores its context, or blocks on a channel with no partner, has nothing to end it.",
+    lookFor: [
+      "Names the propagation: the request context is passed as the first argument to each call, and cancelling a parent closes every derived `Done` channel and sets the `Err` value.",
+      "Names the discipline: `defer cancel()` on every context created with `context.WithCancel` or `WithTimeout`, otherwise the parent retains the child's resources until it is itself cancelled.",
+      "Names the leaks: a goroutine blocked on an unbuffered send or receive with no partner, a goroutine waiting on a ticker or a sleep that never checks the context, and a context stored in a struct instead of threaded through calls.",
+      "Names the correct select: a `select` on `ctx.Done()` alongside the work channel, and passing `ctx` into the database call so the driver cancels the query rather than leaving it running.",
+      "Names the diagnostic: goroutine count as a metric, a `pprof` goroutine dump showing the blocked stacks, and a test that loops and watches the count for growth.",
+      "Names the deadline discipline: an outbound deadline as well as the inbound request deadline, so a slow dependency cannot outlive the client that gave up on it.",
+    ],
+    commonMistakes: [
+      "Stores a `context` in a struct field and never threads it through, so cancellation cannot reach the call.",
+      "Creates a child context and omits `defer cancel()`, which is itself a documented leak.",
+      "Swallows the cancellation error and returns a partial result as success.",
+    ],
+  },
+  {
+    slug: "value-types-and-boxing",
+    group: "language-depth",
+    title: "Value types and boxing at a generic boundary",
+    statement:
+      "A generic method takes a type parameter, a caller passes an `int`, and the value ends up as a heap object. Explain what the runtime did, and what that costs when it happens once per item in a hot loop.",
+    summary:
+      "A value type is stored inline, but converting it to `object` or to a non-generic interface wraps it in a heap object, and every conversion copies the value again.",
+    lookFor: [
+      "Names the distinction: a value type carries its data in place, a reference type holds a pointer to a heap object, and assignment copies the value or the pointer accordingly.",
+      "Names boxing: converting a value type to `object` or to a non-generic interface allocates a wrapper on the managed heap and copies the value in; unboxing copies it back out and demands the exact type.",
+      "Names the generic boundary: an unconstrained type parameter or a class constraint boxes, while a value-type constraint or a generic collection such as `List<int>` stores the values inline with no box.",
+      "Names the legacy interfaces: a non-generic `IEnumerable` or `IComparable` forces the boxing that `IEnumerable<T>` and `IComparable<T>` avoid, which is why the generic overload matters at the call site.",
+      "Names the observable cost: an allocation and garbage-collection pressure per iteration, visible as a heap allocation on a loop whose source appears to allocate nothing.",
+      "Names the escape hatches: `EqualityComparer<T>.Default`, a value-type constraint, or a struct implementing the generic interface, each of which removes the box rather than hiding it.",
+    ],
+    commonMistakes: [
+      "Says a struct always lives on the stack, when a struct field inside a class lives on the heap with its owner.",
+      "Calls the conversion a cast and never says that boxing allocates.",
+      "Removes the box by turning the type into a class and replaces every copy with an indirection.",
+    ],
+  },
+  {
+    slug: "async-await-state-machine",
+    group: "language-depth",
+    title: "Async/await as a state machine",
+    statement:
+      "An `async` method awaits a call that has not finished, and the thread goes back to the pool and runs other work. Explain where the method's local variables went while it was suspended, and what resumes it.",
+    summary:
+      "The compiler rewrites an `async` method into a state machine, so an incomplete await returns to the caller and whatever completes the task schedules the continuation.",
+    lookFor: [
+      "Names the rewrite: the compiler generates a state machine implementing `IAsyncStateMachine`, with the locals lifted to fields and the body split into states around each `await`.",
+      "Names the suspension path: the awaiter checks `IsCompleted`, the method continues synchronously when it is true, and otherwise the state machine is captured, the continuation is registered, and the method returns its `Task` to the caller.",
+      "Names the resume path: the completing task invokes the continuation, which re-enters the state machine at the recorded state with the lifted locals restored, on whichever thread the captured context schedules.",
+      "Names the allocation shape: a state machine that completes synchronously is not boxed, and `ValueTask` or a cached completed `Task` is how a hot path avoids the per-call allocation.",
+      "Names what `await` does not do: it creates no thread and makes no CPU-bound work asynchronous, so a synchronous loop inside an `async` method still occupies the calling thread.",
+      "Names the failure mode: `.Result` or `.Wait()` on an incomplete task blocks a pool thread and can deadlock when the continuation is queued to a captured single-threaded context, and `async void` loses the exception because there is no task to await.",
+    ],
+    commonMistakes: [
+      "Says `await` starts a new thread, or that `async` makes the method run in parallel.",
+      "Blocks on an `async` call with `.Result` and calls the resulting deadlock a runtime bug.",
+      "Declares `async void` for something other than an event handler, so the exception has nowhere to go.",
+    ],
+  },
+  {
+    slug: "large-object-heap",
+    group: "language-depth",
+    title: "The large object heap",
+    statement:
+      "A service allocates a few large arrays per request and both the collection pauses and the process size climb. Explain how the runtime treats an allocation of that size differently from a small one, and why the usual per-request allocation advice does not apply.",
+    summary:
+      "Objects at or above 85,000 bytes go to the large object heap, which is swept rather than compacted by default, so allocating them per request fragments the heap and makes collection more expensive.",
+    lookFor: [
+      "Names the threshold: an allocation of 85,000 bytes or more goes to the large object heap rather than generation 0.",
+      "Names the consequence: the large object heap is collected only as part of a generation 2 collection, so a per-request large allocation is not reclaimed by the cheap generation 0 collection.",
+      "Names the compaction policy: the large object heap is swept rather than compacted by default because moving large objects is expensive, so free space is left as holes and a long-lived process fragments.",
+      "Names the observable symptom: generation 2 collection frequency rising with request rate, pause time growing, and process size growing without a corresponding live set.",
+      "Names the fixes: reuse a pooled buffer instead of allocating per request, split the work into chunks under the threshold, and if fragmentation is the problem, enable large-object-heap compaction deliberately or pin and pool the buffers.",
+      "Names the diagnostic: an allocation profile or heap dump split by generation showing large-object-heap allocations attributed to the request path, alongside the large-object-heap size and fragmentation counters.",
+    ],
+    commonMistakes: [
+      "Assumes every allocation is reclaimed by the next generation 0 collection.",
+      "Shrinks the object below the threshold without asking whether the data still fits.",
+      "Enables large-object-heap compaction globally without weighing the pause cost it adds.",
     ],
   },
 
