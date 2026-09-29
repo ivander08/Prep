@@ -23,11 +23,18 @@ import { join, dirname } from "node:path";
 /**
  * True when running inside a compiled executable.
  *
- * `~BUN` is the virtual root Bun uses for a compiled binary. It is the documented observable
- * difference between the two modes: there is no `import.meta.main`-style flag that distinguishes
- * them, and `process.execPath` alone is ambiguous because in dev it is the `bun` binary itself.
+ * `Bun.isStandaloneExecutable` is the predicate that actually means this. It matters that the
+ * answer is right on every platform: the previous check was `import.meta.dir.includes("~BUN")`,
+ * which matches Windows' `B:\~BUN\root` but not Linux/macOS's `/$bunfs/root`. There the check was
+ * false, `RESOURCE_ROOT` became the virtual root, and `readdirSync(MIGRATIONS_DIR)` threw ENOENT —
+ * so migrations never applied and the app came up against an empty schema.
+ *
+ * The `~BUN` substring stays as a fallback for a runtime old enough to lack the predicate.
  */
-export const IS_COMPILED = import.meta.dir.includes("~BUN");
+export const IS_COMPILED: boolean =
+  typeof Bun.isStandaloneExecutable === "boolean"
+    ? Bun.isStandaloneExecutable
+    : import.meta.dir.includes("~BUN");
 
 /**
  * Where the resources live.

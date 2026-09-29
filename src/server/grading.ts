@@ -10,42 +10,24 @@
  * own reference solution crashed on those.
  */
 
-import { writeFile, rm } from "node:fs/promises";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
 import { db } from "./db.ts";
-import { parseArgs, parseExpected, type IoPair } from "./iocases.ts";
+import { parseArgs, parseArgsAuto, parseExpected, type IoPair } from "./iocases.ts";
 import { verifierFor } from "./verifiers.ts";
 import { runInLanguage } from "./runner.ts";
 import type { ProblemMeta } from "./executor.ts";
-import { resourcePath } from "./paths.ts";
-
-export type IoCaseResult = {
-  index: number;
-  input: string;
-  expected: unknown;
-  got: unknown;
-  pass: boolean;
-  /** True when a semantic verifier decided this case. */
-  semantic: boolean;
-  error?: string;
-};
-
-export type IoRunResult = {
-  cases: IoCaseResult[];
-  passed: number;
-  total: number;
-  skipped: number;
-  accepted: boolean;
-  durationMs: number;
-  stderr?: string;
-  semanticCount: number;
-};
 
 /** Deep equality that treats arrays as order-free when the problem allows it. */
 function deepEqual(a: unknown, b: unknown): boolean {
   if (a === b) return true;
-  if (typeof a === "number" && typeof b === "number") return Math.abs(a - b) < 1e-9;
+  if (typeof a === "number" && typeof b === "number") {
+    // Integers compare exactly. A tolerance on integers is not a tolerance: past 2^53 two
+    // distinct int64 answers collapse onto the same double, so `unique-paths`' suite — whose
+    // outputs run up to 13750991318793417920 — compared a wrong answer as equal to the right
+    // one. The tolerance stays for genuinely fractional values, where it exists to absorb the
+    // difference between 0.1 + 0.2 and 0.3.
+    if (Number.isInteger(a) && Number.isInteger(b)) return false;
+    return Math.abs(a - b) < 1e-9;
+  }
   if (Array.isArray(a) && Array.isArray(b)) {
     if (a.length !== b.length) return false;
     return a.every((x, i) => deepEqual(x, b[i]));
@@ -71,7 +53,42 @@ export type PreparedSuite = {
   cases: PreparedCase[];
   skipped: number;
   skipReasons: string[];
+  /**
+   * Set when the suite cannot be graded in any language, so the caller answers 422 with the
+   * reason instead of reporting "0 of N wrong answer" against code that is correct.
+   */
+  ungradeable: string | null;
 };
+
+/**
+ * Parameter types at least one harness can construct from the JSON payload.
+ *
+ * Every language receives the arguments as JSON, so Python, JavaScript and Go can bind anything
+ * JSON can express; Java and C++ bind through `Main.java.txt`'s `coerce` and `runner.ts`'s
+ * `CPP_TYPE`. A type outside this set is one no harness can build — `ListNode` and `TreeNode` are
+ * the two in the corpus: the suite passes `[4,2,7,1,3,6,9]` where the signature wants a node, so
+ * Python raises `AttributeError`, Java and C++ have no branch, and Go substitutes nil through its
+ * `reflect.Zero` fallback. That is a limitation of the runner, not a wrong answer, so the whole
+ * suite is reported ungradeable rather than graded as a failure.
+ *
+ * A type only SOME languages bind (`double` and `boolean[]` are Java-but-not-C++) is deliberately
+ * NOT listed here: that is a per-language gap, which `caseFits` handles by dropping the case for
+ * that language alone.
+ */
+const CONSTRUCTIBLE_PARAM_TYPES = new Set([
+  "integer",
+  "integer[]",
+  "integer[][]",
+  "double",
+  "double[]",
+  "string",
+  "string[]",
+  "boolean",
+  "boolean[]",
+  "character",
+  "character[]",
+  "character[][]",
+]);
 
 /**
  * Turn a stored suite into runnable cases, dropping anything ungradeable.
@@ -83,19 +100,68 @@ export function prepareSuite(slug: string, ioJson: string, meta: ProblemMeta | n
   try {
     pairs = JSON.parse(ioJson) as IoPair[];
   } catch {
-    return { cases: [], skipped: 0, skipReasons: ["io_cases is not valid JSON"] };
+    return { cases: [], skipped: 0, skipReasons: ["io_cases is not valid JSON"], ungradeable: null };
   }
 
-  const arity = meta?.params?.length ?? 0;
-  const hasVerifier = verifierFor(slug) !== null;
   const cases: PreparedCase[] = [];
   const skipReasons: string[] = [];
   let skipped = 0;
 
+  const done = (ungradeable: string | null): PreparedSuite => ({
+    cases,
+    skipped,
+    skipReasons,
+    ungradeable,
+  });
+
+  // A `void` entry point is graded on the mutation it leaves in its argument, and the stored
+  // suite records only the return value — `sort-colors` stores `output: "None"` for all 128
+  // cases. Every case therefore "passes" against a no-op: measured, `def sortColors(self, nums):
+  // pass` scored 128/128 accepted, and so did `nums.sort(reverse=True)`. There is no expectation
+  // to compare against, so there is nothing to grade; inventing one would be a new false-accept
+  // surface.
+  if (meta?.return?.type === "void") {
+    return done("void entry point: graded on the mutation it leaves behind, which the suite does not store");
+  }
+
+  // A parameter no harness can construct. See `CONSTRUCTIBLE_PARAM_TYPES`.
+  const unbindable = (meta?.params ?? []).filter((p) => !CONSTRUCTIBLE_PARAM_TYPES.has(p.type));
+  if (unbindable.length > 0) {
+    return done(
+      `this problem's signature takes ${unbindable.map((p) => p.type).join(", ")}, ` +
+        `which the runner cannot build from the stored cases`,
+    );
+  }
+
+  /**
+   * Arity from the input, with the metadata as a cross-check.
+   *
+   * `meta_json` is filled lazily on first open, so 2,851 of the 2,869 problems that have a suite
+   * have no metadata at all. Taking the arity from `meta.params.length ?? 0` therefore rejected
+   * every multi-argument case on those problems: measured, `valid-parentheses` graded 0 of 149,
+   * `palindrome-number` 0 of 61, `two-sum` 0 of 80. The count is derivable from the input, which
+   * is `name = value` chunks by construction, so it is derived. Measured over all 2,869 stored
+   * suites: 286,041 of 288,608 raw cases parse this way, every problem keeps at least 3 gradeable
+   * cases, and for all 18 problems that do have metadata the derived count matches
+   * `meta.params.length` exactly — including `two-sum` (80), `valid-anagram` (107) and
+   * `sort-colors` (128).
+   *
+   * The metadata still wins when it disagrees with the derived count on a MAJORITY of the cases
+   * that parsed: that is the signal the derived parse is wrong for this problem, and the declared
+   * signature is the more reliable of the two.
+   */
+  const derived = pairs.map((p) => parseArgsAuto(p.input));
+  const declared = meta?.params?.length;
+  const parseable = derived.filter((v) => v !== null).length;
+  const disagreed = derived.filter((v) => v !== null && v.length !== declared).length;
+  const useDeclared = declared !== undefined && parseable > 0 && disagreed * 2 > parseable;
+
+  const hasVerifier = verifierFor(slug) !== null;
+
   for (let i = 0; i < pairs.length; i++) {
     const pair = pairs[i]!;
 
-    const args = parseArgs(pair.input, arity);
+    const args = useDeclared ? parseArgs(pair.input, declared) : derived[i]!;
     if (args === null) {
       skipped++;
       if (skipReasons.length < 3) skipReasons.push(`case ${i}: input shape not parseable`);
@@ -114,14 +180,13 @@ export function prepareSuite(slug: string, ioJson: string, meta: ProblemMeta | n
      * an empty array, `undefined` (which `JSON.stringify` drops entirely, so the harness emits
      * malformed JSON for that case), or they throw. Dropping beats inventing an equivalence: treating
      * `[]` as "no solution" would accept an empty array where it IS the wrong answer, and a false
-     * ACCEPT teaches something untrue. A `void` entry point is the exception; `null` fits there.
+     * ACCEPT teaches something untrue.
      */
-    const retType = meta?.return?.type;
-    if (expected.kind === "ok" && expected.value === null && retType !== "void") {
+    if (expected.kind === "ok" && expected.value === null) {
       skipped++;
       if (skipReasons.length < 3) {
         skipReasons.push(
-          `case ${i}: expects null, which only Python can return from a ${retType ?? "non-void"} signature`,
+          `case ${i}: expects null, which only Python can return from a ${meta?.return?.type ?? "non-void"} signature`,
         );
       }
       continue;
@@ -142,170 +207,12 @@ export function prepareSuite(slug: string, ioJson: string, meta: ProblemMeta | n
       index: cases.length,
       input: pair.input,
       args,
-      expected: expected.kind === "string" ? expected.value : expected.value,
+      expected: expected.value,
       semantic: hasVerifier,
     });
   }
 
-  return { cases, skipped, skipReasons };
-}
-
-const PY_IO_HARNESS = async (code: string, payloadB64: string, fn: string): Promise<string> => {
-  const template = await Bun.file(resourcePath("harnesses/io_check.py.txt")).text();
-  return template
-    .replace("__USER_CODE__", code)
-    .replace("__PAYLOAD_B64__", payloadB64)
-    .replace("__FN__", fn);
-};
-
-/**
- * Run a suite and grade it semantically.
- *
- * Never throws on user error: a syntax error or a crash comes back as a failed result carrying
- * the message, because that message is what the student needs to see.
- */
-export async function runSuite(opts: {
-  slug: string;
-  code: string;
-  fnName: string;
-  ioJson: string;
-  meta: ProblemMeta | null;
-  timeoutMs?: number;
-}): Promise<IoRunResult> {
-  const started = Date.now();
-  const prepared = prepareSuite(opts.slug, opts.ioJson, opts.meta);
-
-  if (prepared.cases.length === 0) {
-    return {
-      cases: [],
-      passed: 0,
-      total: 0,
-      skipped: prepared.skipped,
-      accepted: false,
-      durationMs: Date.now() - started,
-      semanticCount: 0,
-      stderr: `no gradeable cases (${prepared.skipReasons.join("; ") || "suite empty"})`,
-    };
-  }
-
-  const payload = Buffer.from(
-    JSON.stringify({ cases: prepared.cases.map((c) => ({ args: c.args })) }),
-    "utf8",
-  ).toString("base64");
-
-  const program = await PY_IO_HARNESS(opts.code, payload, opts.fnName);
-  const file = join(tmpdir(), `prep_io_${crypto.randomUUID()}.py`);
-  await writeFile(file, program, "utf8");
-
-  const proc = Bun.spawn(["python", file], {
-    stdout: "pipe",
-    stderr: "pipe",
-    env: { ...process.env, PYTHONIOENCODING: "utf-8" },
-  });
-
-  const killer = setTimeout(() => proc.kill(), opts.timeoutMs ?? 20_000);
-  let stdout = "";
-  let stderr = "";
-  try {
-    [stdout, stderr] = await Promise.all([
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
-    ]);
-  } finally {
-    clearTimeout(killer);
-    await rm(file, { force: true });
-  }
-
-  const line = stdout.trim().split("\n").filter(Boolean).pop();
-  if (!line) {
-    return {
-      cases: [],
-      passed: 0,
-      total: prepared.cases.length,
-      skipped: prepared.skipped,
-      accepted: false,
-      durationMs: Date.now() - started,
-      semanticCount: 0,
-      stderr: stderr.slice(0, 2000) || "no output (process killed or crashed)",
-    };
-  }
-
-  let parsed: { fatal?: string; results?: Array<{ index: number; got: unknown; error?: string }> };
-  try {
-    parsed = JSON.parse(line);
-  } catch {
-    return {
-      cases: [],
-      passed: 0,
-      total: prepared.cases.length,
-      skipped: prepared.skipped,
-      accepted: false,
-      durationMs: Date.now() - started,
-      semanticCount: 0,
-      stderr: `harness emitted non-JSON: ${line.slice(0, 300)}`,
-    };
-  }
-
-  if (parsed.fatal) {
-    return {
-      cases: [],
-      passed: 0,
-      total: prepared.cases.length,
-      skipped: prepared.skipped,
-      accepted: false,
-      durationMs: Date.now() - started,
-      semanticCount: 0,
-      stderr: parsed.fatal,
-    };
-  }
-
-  const byIndex = new Map((parsed.results ?? []).map((r) => [r.index, r]));
-  const results: IoCaseResult[] = [];
-  const verifier = verifierFor(opts.slug);
-  let passed = 0;
-
-  for (const c of prepared.cases) {
-    const raw = byIndex.get(c.index);
-
-    if (!raw) {
-      results.push({ index: c.index, input: c.input, expected: c.expected, got: null, pass: false, semantic: false, error: "no result returned" });
-      continue;
-    }
-
-    if (raw.error) {
-      results.push({ index: c.index, input: c.input, expected: c.expected, got: null, pass: false, semantic: false, error: raw.error });
-      continue;
-    }
-
-    // A semantic verifier decides where the answer set is order-free; exact equality
-    // otherwise, because strictness is correct for single-answer problems.
-    const verdict = verifier
-      ? verifier(raw.got, c.expected)
-      : { pass: deepEqual(raw.got, c.expected) };
-
-    if (verdict.pass) passed++;
-    results.push({
-      index: c.index,
-      input: c.input,
-      expected: c.expected,
-      got: raw.got,
-      pass: verdict.pass,
-      semantic: Boolean(verifier),
-      ...("reason" in verdict && verdict.reason ? { error: verdict.reason } : {}),
-    });
-  }
-
-  const total = prepared.cases.length;
-  return {
-    cases: results,
-    passed,
-    total,
-    skipped: prepared.skipped,
-    accepted: passed === total,
-    durationMs: Date.now() - started,
-    semanticCount: verifier ? results.length : 0,
-    ...(stderr.trim() ? { stderr: stderr.slice(0, 2000) } : {}),
-  };
+  return done(null);
 }
 
 /**
@@ -338,6 +245,19 @@ function caseFits(language: string, args: unknown[], meta: ProblemMeta | null): 
   return args.every((a, i) => fits(a, meta?.params?.[i]?.type));
 }
 
+/**
+ * The bare method name from a suite's dotted entry point: `Solution().twoSum` -> `twoSum`.
+ *
+ * Every one of the 2,869 stored suites uses the dotted form, and only 74 problems have `meta_json`
+ * to name the method independently. Falling back to `""` for the other 2,795 made the harness look
+ * for a method called nothing: measured on `valid-parentheses`, a correct solution scored 0/148 with
+ * `class Solution has no method ` on every case.
+ */
+export function entryPointName(entryPoint: string): string {
+  const last = entryPoint.split(".").pop() ?? "";
+  return last.endsWith("()") ? last.slice(0, -2) : last;
+}
+
 /** Whether a problem has a gradeable structured suite. */
 export function hasStructuredSuite(slug: string): boolean {
   const row = db
@@ -368,6 +288,8 @@ export type AnyLanguageSuiteResult = {
   durationMs: number;
   stderr?: string;
   semanticCount: number;
+  /** Set when the suite cannot be graded at all; the route answers 422 with this text. */
+  ungradeable: string | null;
 };
 
 /**
@@ -394,6 +316,22 @@ export async function runSuiteAnyLanguage(opts: {
   const started = Date.now();
   const prepared = prepareSuite(opts.slug, opts.ioJson, opts.meta);
 
+  // A suite that cannot be graded at all. Reported as such so the route can answer 422: grading
+  // it would return `accepted: false` over zero cases and read as "your code is wrong".
+  if (prepared.ungradeable !== null) {
+    return {
+      cases: [],
+      passed: 0,
+      total: 0,
+      skipped: prepared.skipped,
+      accepted: false,
+      durationMs: Date.now() - started,
+      semanticCount: 0,
+      stderr: prepared.ungradeable,
+      ungradeable: prepared.ungradeable,
+    };
+  }
+
   /**
    * Drop cases this language cannot construct before running. See `caseFits`: a case whose
    * arguments exceed the declared 32-bit type cannot be executed, so counting it as a failure
@@ -410,6 +348,10 @@ export async function runSuiteAnyLanguage(opts: {
   const unconstructable = prepared.cases.length - runnable.length;
 
   if (runnable.length === 0) {
+    const reason =
+      prepared.cases.length === 0
+        ? `no gradeable cases (${prepared.skipReasons.join("; ") || "suite empty"})`
+        : `no cases this language can construct (${unconstructable} exceed its integer range)`;
     return {
       cases: [],
       passed: 0,
@@ -418,10 +360,8 @@ export async function runSuiteAnyLanguage(opts: {
       accepted: false,
       durationMs: Date.now() - started,
       semanticCount: 0,
-      stderr:
-        prepared.cases.length === 0
-          ? `no gradeable cases (${prepared.skipReasons.join("; ") || "suite empty"})`
-          : `no cases this language can construct (${unconstructable} exceed its integer range)`,
+      stderr: reason,
+      ungradeable: reason,
     };
   }
 
@@ -447,6 +387,7 @@ export async function runSuiteAnyLanguage(opts: {
       accepted: false,
       durationMs: Date.now() - started,
       semanticCount: 0,
+      ungradeable: null,
       ...(run.stderr ? { stderr: run.stderr } : {}),
     };
   }
@@ -512,6 +453,7 @@ export async function runSuiteAnyLanguage(opts: {
     accepted: passed === total,
     durationMs: Date.now() - started,
     semanticCount: verifier ? results.length : 0,
+    ungradeable: null,
     ...(run.stderr ? { stderr: run.stderr } : {}),
   };
 }

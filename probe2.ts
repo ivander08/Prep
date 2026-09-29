@@ -1,0 +1,10 @@
+import { Database } from "bun:sqlite";
+import { runSuiteAnyLanguage } from "./src/server/grading.ts";
+const db = new Database("data/prep.db", { readonly: true });
+const slug = process.argv[2]!;
+const s = db.query<{ io_cases: string; entry_point: string | null }, [string]>("SELECT io_cases, entry_point FROM full_tests WHERE slug = ?").get(slug)!;
+const m = db.query<{ meta_json: string | null }, [string]>("SELECT meta_json FROM problems WHERE slug = ?").get(slug);
+const meta = m?.meta_json ? JSON.parse(m.meta_json) : null;
+const code = process.argv[3]!;
+const r = await runSuiteAnyLanguage({ slug, code, fnName: meta?.name ?? s.entry_point ?? "", ioJson: s.io_cases, meta, language: "python3" });
+console.log(JSON.stringify({ accepted: r.accepted, passed: r.passed, total: r.total, ungradeable: r.ungradeable, err: r.cases[0]?.error, stderr: r.stderr?.slice(0,200) }, null, 2));

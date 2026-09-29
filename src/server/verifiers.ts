@@ -52,6 +52,35 @@ const ORDER_FREE_FLAT: Verifier = (got, expected) => {
 };
 
 /**
+ * `two-sum`: exactly two indices, in either order.
+ *
+ * The statement says "You can return the answer in any order.", and the stored suite's reference
+ * answer is one specific ordering of the pair. Comparing positionally rejected the same correct
+ * pair written the other way round — measured: `[i, j]` scored 72/72 and `[j, i]` scored 0/72, on
+ * a problem whose statement explicitly permits both.
+ *
+ * No sum or range check is needed here, and adding one is not possible: a verifier sees the
+ * returned value and the reference answer, not the case's arguments. That is enough, because the
+ * reference answer is a pair of indices into those arguments — any answer that is the same two
+ * indices IS the reference pair, and any other pair is a different pair and is rejected.
+ */
+const TWO_SUM_ANY_ORDER: Verifier = (got, expected) => {
+  const g = asArray(got);
+  const e = asArray(expected);
+  if (!g || !e) return { pass: false, reason: "expected a list of two indices" };
+  if (g.length !== 2 || e.length !== 2) {
+    return { pass: false, reason: `expected two indices, got ${g.length}` };
+  }
+  if (!g.every((v) => typeof v === "number" && Number.isInteger(v))) {
+    return { pass: false, reason: "indices must be integers" };
+  }
+  const sorted = [...g].sort((a, b) => (a as number) - (b as number));
+  return sorted[0] === e[0] && sorted[1] === e[1]
+    ? { pass: true }
+    : { pass: false, reason: `got indices [${g.join(", ")}], expected the pair {${e.join(", ")}}` };
+};
+
+/**
  * Which problems accept more than one ordering.
  *
  * Keyed by slug. A short explicit list, not a heuristic: guessing "this looks order-free" is how a
@@ -59,6 +88,7 @@ const ORDER_FREE_FLAT: Verifier = (got, expected) => {
  * you something untrue.
  */
 const VERIFIERS: Record<string, Verifier> = {
+  "two-sum": TWO_SUM_ANY_ORDER,
   "group-anagrams": ORDER_FREE_GROUPS,
   permutations: ORDER_FREE_GROUPS,
   "permutations-ii": ORDER_FREE_GROUPS,
@@ -70,7 +100,6 @@ const VERIFIERS: Record<string, Verifier> = {
   "combination-sum-ii": ORDER_FREE_GROUPS,
   "combination-sum-iii": ORDER_FREE_GROUPS,
   "letter-combinations-of-a-phone-number": ORDER_FREE_FLAT,
-  "partition-labels": ORDER_FREE_FLAT,
   "top-k-frequent-elements": ORDER_FREE_FLAT,
   "k-closest-points-to-origin": ORDER_FREE_GROUPS,
   "find-all-anagrams-in-a-string": ORDER_FREE_FLAT,

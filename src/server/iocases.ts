@@ -14,8 +14,26 @@ export type IoPair = { input: string; output: string };
 
 /** Split `a = [1,2], b = 3` into `[[1,2], 3]`, respecting nesting and quotes. */
 export function parseArgs(input: string, expectedArity: number): unknown[] | null {
+  const values = parseArgsAuto(input);
+  if (values === null) return null;
+  return values.length === expectedArity ? values : null;
+}
+
+/**
+ * Parse the arguments with no expected arity, taking the count from the input itself.
+ *
+ * `meta_json` is filled lazily on first open (`index.ts`), so 2,851 of the 2,869 problems with a
+ * suite have no metadata at all. Requiring `meta.params.length` before parsing therefore rejected
+ * every multi-argument case on those problems: measured, `valid-parentheses` graded 0 of 149 and
+ * `two-sum` 0 of 80. The count is derivable from the input, which is `name = value` pairs by
+ * construction, so it is derived here and `meta.params` is kept only as a cross-check (see
+ * `prepareSuite`). Measured over all 2,869 stored suites: 286,041 of 288,608 raw cases parse this
+ * way, every problem keeps at least 3 gradeable cases, and for all 18 problems that do have
+ * metadata the derived count matches `meta.params.length` exactly.
+ */
+export function parseArgsAuto(input: string): unknown[] | null {
   const text = input.trim();
-  if (text.length === 0) return expectedArity === 0 ? [] : null;
+  if (text.length === 0) return [];
 
   // Find top-level assignment boundaries: a comma at depth 0 followed by `name =`.
   const starts: number[] = [];
@@ -60,7 +78,7 @@ export function parseArgs(input: string, expectedArity: number): unknown[] | nul
     values.push(parsed);
   }
 
-  return values.length === expectedArity ? values : null;
+  return values;
 }
 
 const UNPARSED = Symbol("unparsed");

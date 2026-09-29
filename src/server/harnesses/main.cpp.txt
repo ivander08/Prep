@@ -33,7 +33,7 @@ static string b64decode(const string& in) {
   return out;
 }
 
-struct Case { string args; string expected; };
+struct Case { string args; string expected; string error; };
 
 static string trim(const string& s) {
   size_t a = s.find_first_not_of(" \t\n\r");
@@ -163,6 +163,7 @@ static string parseFn(const string& p) {
 static vector<Case> parseCases(const string& p) {
   vector<Case> out;
   auto k = p.find("cases");
+  if (k == string::npos) return out;
   auto arr = p.find('[', k);
   if (arr == string::npos) return out;
   int i = (int)arr + 1, depth = 0, start = -1;
@@ -172,14 +173,27 @@ static vector<Case> parseCases(const string& p) {
       depth--;
       if (depth == 0) {
         string obj = p.substr(start, j - start + 1);
-        auto ai = obj.find("args");
+        // A case whose `args` or `expected` field is missing used to fall through to
+        // `obj.substr(npos, …)`, which throws out_of_range from OUTSIDE the per-case try — so the
+        // whole run died with no output and every case was reported as "no result returned". The
+        // case is marked instead, so it arrives with an explicit transport error and the case
+        // count stays honest.
+        auto ai = obj.find("\"args\"");
+        auto ei = obj.find("\"expected\"");
+        if (ai == string::npos || ei == string::npos) {
+          out.push_back({"", "", "malformed case object: missing args or expected"});
+          continue;
+        }
         auto aStart = obj.find('[', ai);
+        if (aStart == string::npos) {
+          out.push_back({"", "", "malformed case object: args is not a list"});
+          continue;
+        }
         string args = obj.substr(aStart, matchBracket(obj, (int)aStart) - aStart);
-        auto ei = obj.find("expected");
         auto eStart = obj.find(':', ei);
         string exp = trim(obj.substr(eStart + 1));
         while (!exp.empty() && (exp.back() == '}' || exp.back() == ' ')) exp.pop_back();
-        out.push_back({args, exp});
+        out.push_back({args, exp, ""});
       }
     }
   }
@@ -203,6 +217,30 @@ static vector<vector<int>> toIntVec2(const string& s) {
   if (!t.empty() && t.front() == '[') t = t.substr(1, t.size() - 2);
   vector<vector<int>> out;
   for (auto& x : splitTop(t)) out.push_back(toIntVec(trim(x)));
+  return out;
+}
+
+// Parse a flat-encoded list of one-character strings into a vector<char>.
+//
+// The wire format carries each element as a JSON string (`["5","3","."]`), because that is what
+// LeetCode's own `character[]` examples look like, so the quotes have to come off before the
+// first character is taken.
+static vector<char> toCharVec(const string& s) {
+  string t = trim(s);
+  if (!t.empty() && t.front() == '[') t = t.substr(1, t.size() - 2);
+  vector<char> out;
+  for (auto& x : splitTop(t)) {
+    string v = unquote(trim(x));
+    out.push_back(v.empty() ? ' ' : v[0]);
+  }
+  return out;
+}
+
+static vector<vector<char>> toCharVec2(const string& s) {
+  string t = trim(s);
+  if (!t.empty() && t.front() == '[') t = t.substr(1, t.size() - 2);
+  vector<vector<char>> out;
+  for (auto& x : splitTop(t)) out.push_back(toCharVec(trim(x)));
   return out;
 }
 
@@ -301,6 +339,13 @@ int main() {
   for (size_t i = 0; i < cases.size(); i++) {
     if (i) cout << ",";
     cout << "{\"index\":" << i << ",\"args\":\"" << mini::jsonEscape(cases[i].args) << "\",\"expected\":\"" << mini::jsonEscape(cases[i].expected) << "\"";
+    if (!cases[i].error.empty()) {
+      // A malformed case still occupies an index, so the TypeScript side finds an entry for it
+      // instead of recording "no result returned" against correct code.
+      cout << ",\"got\":null,\"pass\":false,\"error\":\"" << mini::jsonEscape(cases[i].error) << "\"";
+      cout << "}";
+      continue;
+    }
     try {
 __HARNESS_BODY__
     } catch (const exception& e) {

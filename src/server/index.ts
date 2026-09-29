@@ -15,7 +15,7 @@ import { UI_DIR } from "./paths.ts";
 import { db, migrate, getMeta, setMeta } from "./db.ts";
 import { fetchProblem, htmlToMarkdown, hintToMarkdown } from "./leetcode.ts";
 import { buildTestCases, runFullTests, type FullTestRow, type ProblemMeta } from "./executor.ts";
-import { hasStructuredSuite, runSuiteAnyLanguage } from "./grading.ts";
+import { entryPointName, hasStructuredSuite, runSuiteAnyLanguage } from "./grading.ts";
 import { runInLanguage } from "./runner.ts";
 import { LANGUAGES, detectAvailableLanguages } from "./languages.ts";
 import { dueItems, listProgress, reviewCard, reviewPattern, reviewDesign, gradeAttempt, GRADE_LIMIT_SECONDS } from "./srs.ts";
@@ -199,7 +199,11 @@ app.get("/api/problems/:slug", async (c) => {
       statementSource = detail.content ? "leetcode" : null;
       hints = JSON.stringify(detail.hints ?? []);
       snippets = JSON.stringify(detail.codeSnippets ?? []);
-      metaJson = detail.metaData ?? "{}";
+      // `null`, not `"{}"`. The empty object is a non-null truthy string, so it passed every later
+      // `if (!meta_json)` guard while `JSON.parse("{}").params` is `undefined`; and because
+      // `fetched_at` was also set, the `fetched_at IS NULL` guard above meant the poisoned row was
+      // never re-fetched. Storing `null` keeps the row re-fetchable and makes the guards work.
+      metaJson = detail.metaData ?? null;
       examples = detail.exampleTestcases ?? "";
 
       db.run(
@@ -350,11 +354,18 @@ app.post("/api/run", async (c) => {
     const graded = await runSuiteAnyLanguage({
       slug: body.slug,
       code: body.code,
-      fnName: body.fnName ?? meta?.name ?? "",
+      fnName: body.fnName ?? meta?.name ?? entryPointName(suite.entry_point),
       ioJson: suite.io_cases,
       meta,
       language,
     });
+
+    // A suite that cannot be graded at all — a `void` entry point, or a parameter type no
+    // harness can construct. Answered as 422 with the reason, because returning the grader's
+    // zero-case result would render as "0 of 0 passed" against code that may be correct.
+    if (graded.ungradeable !== null) {
+      return c.json({ error: graded.ungradeable, noGradeableTests: true }, 422);
+    }
 
     return c.json({
       source: "suite",

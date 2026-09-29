@@ -19,7 +19,7 @@ import { db } from "../db.ts";
 import { gradeAttempt, reviewSql } from "../srs.ts";
 import type { Grade } from "ts-fsrs";
 import { SQL_SOLUTIONS } from "./catalog.ts";
-import { gradeSql, isReadOnly, parseCases, seedDatabase } from "./run.ts";
+import { gradeSql, isReadOnly, normalizeDdl, parseCases, seedDatabase } from "./run.ts";
 
 export type SqlProblemRow = {
   qid: number;
@@ -147,8 +147,11 @@ export function getSqlProblem(slug: string): SqlProblemDetail | null {
     difficulty: row.difficulty,
     statementMd: row.statement_md ?? "",
     // The DDL is normalized for display by running it through the same path the seeder uses,
-    // which is the only version guaranteed to be the one the query actually ran against.
-    schema: (meta.mysql ?? []).map((s) => s.trim()),
+    // which is the only version guaranteed to be the one the query actually ran against. Trimming
+    // alone showed MySQL DDL the candidate could not have run: `recyclable-and-low-fat-products`
+    // displayed `low_fats ENUM('Y', 'N')`, which SQLite does not accept, while the grader had
+    // already rewritten it to `TEXT`.
+    schema: (meta.mysql ?? []).map((s) => normalizeDdl(s).trim()),
     seed,
     caseCount: cases.length,
     mutating: !isReadOnly(reference),
@@ -222,10 +225,12 @@ export function runSql(slug: string, query: string, seconds: number): SqlRunResu
     ],
   );
 
-  // Scheduled only when the query actually ran and produced the right rows. A syntax error is
-  // not evidence either way, the same rule the DSA path applies to `testsPassed === 0`.
-  const ran = graded.error === null;
-  const schedule = ran ? reviewSql(slug, row.title, grade, now) : null;
+  // Scheduled only when the query actually RAN and PRODUCED THE RIGHT ROWS. The previous
+  // condition was `graded.error === null` — "did not error" — so a query that ran cleanly and
+  // returned the wrong rows still created a card. The comment above it said "produced the right
+  // rows" and cited the DSA rule `passed || testsPassed > 0`, which is a pass test, not an
+  // error test.
+  const schedule = graded.passed ? reviewSql(slug, row.title, grade, now) : null;
 
   return {
     passed: graded.passed,

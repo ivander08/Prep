@@ -37,11 +37,24 @@ public class Main {
     int passed = 0, total = 0;
     for (String line : CASES.split("\n")) {
       if (line.isEmpty()) continue;
+      // A malformed case line used to `continue`, which dropped the case from the harness's own
+      // output entirely. The TypeScript side then found no entry for that index and recorded "no
+      // result returned" — so a transport fault was reported as a wrong answer, and the harness's
+      // own `total` counted one case fewer than the suite held. It is emitted as a case with an
+      // explicit error instead, so it appears in the map and the count stays honest.
+      String argsPart;
+      String expPart;
       int sep = line.indexOf((char) 30);
-      if (sep < 0) continue;
-      String argsPart = line.substring(0, sep);
-      String expPart = line.substring(sep + 1);
-      String[] argStrs = argsPart.split(String.valueOf((char) 31), -1);
+      String transportError = null;
+      if (sep < 0) {
+        argsPart = "";
+        expPart = "";
+        transportError = "malformed case line: no argument/expected separator";
+      } else {
+        argsPart = line.substring(0, sep);
+        expPart = line.substring(sep + 1);
+      }
+      String[] argStrs = argsPart.isEmpty() ? new String[0] : argsPart.split(String.valueOf((char) 31), -1);
       Class<?>[] types = m.getParameterTypes();
 
       if (total > 0) sb.append(",");
@@ -50,6 +63,7 @@ public class Main {
         .append(",\"expected\":\"").append(esc(expPart)).append("\"");
 
       try {
+        if (transportError != null) throw new IllegalArgumentException(transportError);
         Object[] args = new Object[argStrs.length];
         for (int i = 0; i < argStrs.length; i++) args[i] = coerce(argStrs[i], types[i]);
         Object got = m.invoke(s, args);
@@ -152,13 +166,21 @@ public class Main {
     return (char) 34 + esc(s) + (char) 34;
   }
 
+  /**
+   * Compare a returned value with the expected one.
+   *
+   * Positional, always. `int[]` used to be compared after `Arrays.sort`ing both sides, which
+   * accepts a wrong order on any problem that cares about order — measured: a component exercise
+   * expecting `[1,1,0,0,1,1]` passed with the right multiset in the wrong order. No other language
+   * does this: Python, JavaScript and Go compare the raw JSON, and C++ compares
+   * `result == mini::toIntVec(expectedRaw)` unless the payload says otherwise. This harness cannot
+   * know whether a case is order-free — it never reads the payload's `orderless` flag — so it must
+   * not guess. Order-free problems are decided in TypeScript by `verifiers.ts`, which sees the
+   * whole suite and owns that rule.
+   */
   static boolean same(Object got, Object expected) {
     if (got == null || expected == null) return got == expected;
-    if (got instanceof int[] && expected instanceof int[]) {
-      int[] g = ((int[]) got).clone(), e = ((int[]) expected).clone();
-      Arrays.sort(g); Arrays.sort(e);
-      return Arrays.equals(g, e);
-    }
+    if (got instanceof int[] && expected instanceof int[]) return Arrays.equals((int[]) got, (int[]) expected);
     if (got instanceof double[] && expected instanceof double[]) return Arrays.equals((double[]) got, (double[]) expected);
     if (got instanceof Object[] && expected instanceof Object[]) return Arrays.deepEquals((Object[]) got, (Object[]) expected);
     return String.valueOf(got).replace(" ", "").equals(String.valueOf(expected).replace(" ", ""));
@@ -176,6 +198,31 @@ public class Main {
     if (t == int[].class) {
       String[] p = elements(v); int[] o = new int[p.length];
       for (int i = 0; i < p.length; i++) o[i] = Integer.parseInt(p[i].trim());
+      return o;
+    }
+    // The 2-D and `char` forms were missing, so `valid-sudoku` (`char[][]`), `task-scheduler`
+    // (`char[]`), `meeting-rooms` and `number-of-connected-components` (`int[][]`) threw
+    // `ClassCastException` out of `m.invoke` on every case and were reported as "0/N wrong
+    // answer" against correct code.
+    if (t == int[][].class) {
+      String[] p = elements(v); int[][] o = new int[p.length][];
+      for (int i = 0; i < p.length; i++) {
+        String[] q = elements(p[i].trim()); o[i] = new int[q.length];
+        for (int j = 0; j < q.length; j++) o[i][j] = Integer.parseInt(q[j].trim());
+      }
+      return o;
+    }
+    if (t == char[].class) {
+      String[] p = elements(v); char[] o = new char[p.length];
+      for (int i = 0; i < p.length; i++) { String s = unquote(p[i].trim()); o[i] = s.isEmpty() ? ' ' : s.charAt(0); }
+      return o;
+    }
+    if (t == char[][].class) {
+      String[] p = elements(v); char[][] o = new char[p.length][];
+      for (int i = 0; i < p.length; i++) {
+        String[] q = elements(p[i].trim()); o[i] = new char[q.length];
+        for (int j = 0; j < q.length; j++) { String s = unquote(q[j].trim()); o[i][j] = s.isEmpty() ? ' ' : s.charAt(0); }
+      }
       return o;
     }
     if (t == double[].class) {

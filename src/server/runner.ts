@@ -252,6 +252,13 @@ const CPP_TYPE: Record<string, string> = {
   "string[]": "vector<string>",
   boolean: "bool",
   "boolean[]": "vector<bool>",
+  // LeetCode's C++ stubs declare these as `char`/`vector<char>`/`vector<vector<char>>`, and the
+  // wire format carries each element as a one-character JSON string. Without the entries,
+  // `valid-sudoku` (`character[][]`) and `task-scheduler` (`character[]`) hit the "unsupported
+  // signature" branch and every case came back an error, so a correct solution read "0/N".
+  character: "char",
+  "character[]": "vector<char>",
+  "character[][]": "vector<vector<char>>",
 };
 
 function cppUnpack(meta: ProblemMeta | null): string | null {
@@ -263,7 +270,10 @@ function cppUnpack(meta: ProblemMeta | null): string | null {
     const src = `mini::trim(mini::splitTop(argsBody)[${i}])`;
     if (t === "vector<vector<int>>") lines.push(`  auto a${i} = mini::toIntVec2(${src});`);
     else if (t === "vector<int>") lines.push(`  auto a${i} = mini::toIntVec(${src});`);
+    else if (t === "vector<vector<char>>") lines.push(`  auto a${i} = mini::toCharVec2(${src});`);
+    else if (t === "vector<char>") lines.push(`  auto a${i} = mini::toCharVec(${src});`);
     else if (t === "vector<string>") lines.push(`  auto a${i} = mini::toStrVec(${src});`);
+    else if (t === "char") lines.push(`  char a${i} = mini::unquote(${src}).empty() ? ' ' : mini::unquote(${src})[0];`);
     else if (t === "int") lines.push(`  int a${i} = stoi(${src});`);
     else if (t === "double") lines.push(`  double a${i} = stod(${src});`);
     else if (t === "bool") lines.push(`  bool a${i} = ${src} == "true";`);
@@ -401,11 +411,6 @@ export async function runInLanguage(opts: {
   };
 
   const dir = join(tmpdir(), `prep_${lang.id}_${crypto.randomUUID()}`);
-  await mkdir(dir, { recursive: true });
-  // A public Java class must live in a file matching its name, so Java gets Main.java from
-  // the start rather than being written then renamed — the rename raced javac.
-  const file = join(dir, lang.id === "java" ? "Main.java" : `main.${lang.ext}`);
-  await writeFile(file, await PROGRAMS[lang.id](opts.code, payload, opts.meta ?? null, opts.extraImports ?? []), "utf8");
 
   const fail = (message: string): RunResult => ({
     cases: [],
@@ -416,9 +421,37 @@ export async function runInLanguage(opts: {
     stderr: message,
   });
 
+  /**
+   * Kill a spawned command and everything it spawned.
+   *
+   * `proc.kill()` targets the direct child only. `go run` compiles and then execs the binary as a
+   * GRANDCHILD, so an infinite loop in a Go submission left the grandchild holding the stdout pipe:
+   * `await new Response(proc.stdout).text()` never saw EOF and `run()` never returned, hanging the
+   * request forever and skipping the `finally` that removes the temp directory.
+   *
+   * POSIX has process groups, so the child is spawned detached and the group is signalled.
+   * Windows has none — `process.kill(-pid)` throws there — so `taskkill /T` walks the child tree
+   * instead. Falling back to `proc.kill()` in both cases keeps a failure to kill from throwing out
+   * of the timer.
+   */
+  const killTree = (proc: { pid: number; kill: () => void }) => {
+    try {
+      if (process.platform === "win32") {
+        Bun.spawnSync(["taskkill", "/PID", String(proc.pid), "/T", "/F"], {
+          stdout: "ignore",
+          stderr: "ignore",
+        });
+      } else {
+        process.kill(-proc.pid, "SIGKILL");
+      }
+    } catch {
+      proc.kill();
+    }
+  };
+
   const run = async (cmd: string[], timeout: number) => {
-    const proc = Bun.spawn(cmd, { stdout: "pipe", stderr: "pipe", cwd: dir });
-    const killer = setTimeout(() => proc.kill(), timeout);
+    const proc = Bun.spawn(cmd, { stdout: "pipe", stderr: "pipe", cwd: dir, detached: true });
+    const killer = setTimeout(() => killTree(proc), timeout);
     try {
       const [out, err] = await Promise.all([
         new Response(proc.stdout).text(),
@@ -431,6 +464,14 @@ export async function runInLanguage(opts: {
   };
 
   try {
+    // `mkdir` and `writeFile` are INSIDE the try whose `finally` removes the directory. Outside it,
+    // a throw from `PROGRAMS[...]` — an unreadable harness template, say — orphaned
+    // `%TEMP%/prep_<lang>_<uuid>/` on every attempt.
+    await mkdir(dir, { recursive: true });
+    // A public Java class must live in a file matching its name, so Java gets Main.java from
+    // the start rather than being written then renamed — the rename raced javac.
+    const file = join(dir, lang.id === "java" ? "Main.java" : `main.${lang.ext}`);
+    await writeFile(file, await PROGRAMS[lang.id](opts.code, payload, opts.meta ?? null, opts.extraImports ?? []), "utf8");
     if (lang.id === "cpp") {
       const exe = join(dir, "prog.exe");
       const build = await run(["g++", "-O0", "-std=c++17", "-o", exe, file], timeoutMs);
@@ -531,12 +572,16 @@ function finish(stdout: string, stderr: string, total: number, started: number, 
 
   const cases = parsed.cases ?? [];
   const passed = parsed.passed ?? 0;
-  const t = parsed.total ?? total;
+  // `total` is the number of cases SENT, not the number the harness claims to have run. A harness
+  // that silently skipped a malformed case reported a smaller total, so the count line could read
+  // "N/N" over fewer cases than the suite holds — a green run that had not run everything. Both
+  // harnesses now emit an explicit error record for a malformed case instead of dropping it, so the
+  // two agree in practice; this keeps them agreeing if one ever regresses.
   return {
     cases,
     passed,
-    total: t,
-    accepted: passed === t && cases.length > 0,
+    total,
+    accepted: passed === total && cases.length > 0,
     durationMs,
     ...(stderr.trim() ? { stderr: stderr.slice(0, 2000) } : {}),
   };

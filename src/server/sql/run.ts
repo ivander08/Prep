@@ -147,14 +147,20 @@ export function seedDatabase(slug: string, metaJson: string, examples: string, c
   return db;
 }
 
-/** The result rows a query produced, as JSON-encoded tuples. */
-function rowsOf(db: Database, query: string, limit: number): unknown[][] {
+/**
+ * The result rows a query produced, as JSON-encoded tuples.
+ *
+ * Uncapped. `MAX_RESULT_ROWS` is a TRANSPORT limit, not a comparison limit: truncating before the
+ * multiset sort meant two result sets that are the same multiset of 250 rows truncated to two
+ * different 200-row subsets purely because the query returned them in a different order — and the
+ * order is not part of the contract. The cap is applied where the rows are handed to the browser.
+ */
+function rowsOf(db: Database, query: string): unknown[][] {
   const statement = db.query(query);
   // `values()` returns null for a statement that produces no rows, so a submission whose
   // leading keyword is SELECT but which returns nothing (or a non-SELECT the reference's shape
   // permitted) comes back as an empty result rather than a crash.
-  const rows = (statement.values() ?? []) as unknown[][];
-  return rows.slice(0, limit);
+  return (statement.values() ?? []) as unknown[][];
 }
 
 /** A row as a stable string, so two results can be compared as multisets. */
@@ -200,10 +206,35 @@ export function checkStatement(query: string, allowMutation: boolean): string | 
     return "write a single SELECT, DELETE, UPDATE or INSERT statement";
   }
 
-  // A semicolon with anything but whitespace after it is a second statement.
-  const semi = stripped.indexOf(";");
-  if (semi !== -1 && stripped.slice(semi + 1).trim().length > 0) {
-    return "write a single statement: remove the text after the semicolon";
+  // A semicolon with anything but whitespace after it is a second statement — but only outside a
+  // string literal. Searching for the first `;` blindly rejected
+  // `SELECT * FROM T WHERE name = 'a;b'` with "write a single statement", which is a correct
+  // single-statement query refused before any database was seeded. Measured: `'a;b'` REJECT,
+  // `SELECT 1;` ACCEPT, `SELECT 1; SELECT 2` REJECT.
+  //
+  // Doubled quotes (`''`) are an escape inside a literal and must not toggle the state, or
+  // `'it''s; fine'` would end the literal early and expose the semicolon.
+  let inStr: string | null = null;
+  for (let i = 0; i < stripped.length; i++) {
+    const ch = stripped[i]!;
+    if (inStr !== null) {
+      if (ch === inStr) {
+        if (stripped[i + 1] === inStr) i++;
+        else inStr = null;
+      }
+      continue;
+    }
+    if (ch === "'" || ch === '"') {
+      inStr = ch;
+      continue;
+    }
+    if (ch === ";") {
+      if (stripped.slice(i + 1).trim().length > 0) {
+        return "write a single statement: remove the text after the semicolon";
+      }
+      // A trailing semicolon with only whitespace after it is harmless.
+      break;
+    }
   }
 
   return null;
@@ -287,7 +318,7 @@ export function gradeSql(opts: {
       expectedState = snapshot(refDb);
       expectedRows = [];
     } else {
-      expectedRows = rowsOf(refDb, opts.referenceQuery, limit);
+      expectedRows = rowsOf(refDb, opts.referenceQuery);
     }
   } catch (e) {
     throw new Error(`${opts.slug}: the reference query failed (${String(e)})`);
@@ -304,11 +335,17 @@ export function gradeSql(opts: {
       userDb.run(opts.userQuery);
       userRows = [];
     } else {
-      userRows = rowsOf(userDb, opts.userQuery, limit);
+      userRows = rowsOf(userDb, opts.userQuery);
     }
   } catch (e) {
     userDb.close();
-    return { passed: false, userRows: [], expectedRows, error: String(e), mutating };
+    return {
+      passed: false,
+      userRows: [],
+      expectedRows: expectedRows.slice(0, limit),
+      error: String(e),
+      mutating,
+    };
   }
 
   if (mutating) {
@@ -334,10 +371,18 @@ export function gradeSql(opts: {
   userDb.close();
 
   // Multiset comparison: sort the two lists of row-keys and compare. Order is not part of the
-  // contract for any of the 50 problems; column names and column order are not either.
+  // contract for any of the 50 problems; column names and column order are not either. Compared
+  // UNCAPPED — the cap is a transport limit applied to the copy below, so two orderings of the
+  // same 250-row multiset cannot truncate to different subsets and disagree.
   const a = userRows.map(rowKey).sort();
   const b = expectedRows.map(rowKey).sort();
   const passed = a.length === b.length && a.every((v, i) => v === b[i]);
 
-  return { passed, userRows, expectedRows, error: null, mutating };
+  return {
+    passed,
+    userRows: userRows.slice(0, limit),
+    expectedRows: expectedRows.slice(0, limit),
+    error: null,
+    mutating,
+  };
 }
