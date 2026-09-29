@@ -58,7 +58,7 @@ This app doesn't have that problem, because it runs your code.
 |---|---|
 | **Catalog** | 4,068 problems with full metadata · 7 curated lists, 100% joined · 38 companies, 11,315 frequency-ordered associations |
 | **Executor** | Python, JavaScript, Java, C++, Go — deterministic verdicts, subprocess-isolated |
-| **Test suites** | **2,869 problems × 37–144 executable cases**, graded in all five languages |
+| **Test suites** | **2,869 problems × 3–451 executable cases** (19–128 after the drop rules, for the 74 with metadata), graded in all five languages |
 | **Scheduling** | ts-fsrs (FSRS-6), capped at 90 days |
 | **Tutor** | deterministic hint ceiling, code-reveal detector, validate/repair, hints that point at your code |
 | **Fundamentals** | **31 pre-DSA concepts × 5 languages = 155 exercises**, every exemplar executed |
@@ -269,7 +269,7 @@ correctness is decided.
 
 | track | graded by |
 |---|---|
-| **Problems** | 37–144 executable test cases |
+| **Problems** | 3–451 executable test cases, per problem |
 | **SQL** | executing your query against a seeded database |
 | **Fundamentals** | executable tests, same runner as DSA |
 | **Build** | executable tests, stateful operation scripts |
@@ -415,7 +415,7 @@ of it.
 
 LeetCode's API exposes only `exampleTestcases` — the 2–3 public examples — so a solution that
 passes locally can still fail their hidden tests. `newfacade/LeetCodeDataset` (Apache-2.0) closes
-most of that gap: **2,869 problems with 37–144 executable cases each**, imported in 11 s and
+most of that gap: **2,869 problems with 3–451 executable cases each**, imported in 11 s and
 joined to the catalog at 100% by slug.
 
 ```bash
@@ -437,6 +437,16 @@ Two kinds of case are **dropped and reported**, never guessed at:
 2. **Arguments the language can't construct.** Java and C++ declare `int` as 32-bit, and the
    dataset contains inputs like `-3000000000` on a problem whose signature is `int[]`. The case
    can't be *run*, so counting it as a failure would mark a correct solution wrong.
+3. **A `void` entry point.** The suite stores only the return value, and a `void` method is graded
+   on the mutation it leaves in its argument — so there is nothing to compare against. Measured:
+   `sort-colors`' 128 cases all store `None`, so `def sortColors(self, nums): pass` scored
+   **128/128 accepted**. The problem is reported ungradeable (422) rather than graded.
+4. **A parameter type no harness can build.** The suite passes `[4,2,7,1,3,6,9]` where the
+   signature wants a `ListNode`/`TreeNode`: Python raises `AttributeError`, Java and C++ have no
+   coercion, Go substitutes nil. Every case failed, so a correct solution read **0/N**.
+
+The last two are suite-level: the whole problem is refused with a plain explanation, because a
+zero-case grade would render as "0 of 0 passed" against code that may be correct.
 
 ### Multiple valid answers
 
@@ -446,6 +456,19 @@ order. The imported suites assert exact equality, which marked a **correct** sol
 `verifiers.ts` holds semantic comparators for those problems: any valid ordering passes,
 everything else keeps strict equality. The list is **explicit rather than heuristic**, because
 guessing "this looks order-free" is how a false ACCEPT gets introduced.
+
+The list is wrong in both directions if it is not maintained, and both were measured:
+
+- **Missing an entry is a false REJECT.** `two-sum`'s statement says *"You can return the answer
+  in any order."*, and the stored reference answer is one specific ordering. Ascending `[i, j]`
+  scored **72/72**; the same correct pair as `[j, i]` scored **0/72**. There is now a verifier that
+  accepts either order of the pair.
+- **An extra entry is a false ACCEPT.** `partition-labels` returns partition *sizes* in the order
+  the partitions occur — `"ababcbacadefegdehijhklij"` → `[9,7,8]`, and `[7,8,9]` is wrong. It was
+  mapped to the order-free comparator, which sorted both sides and accepted the wrong order.
+
+In-language harnesses compare **positionally** and never see an `orderless` flag, so ordering is
+decided in exactly one place: here.
 
 Cases whose stored expected value is a Python exception message (23 records) are **dropped, not
 graded** — the dataset's own reference solution crashed on those.
@@ -618,7 +641,7 @@ src-tauri/       desktop shell: spawns the compiled sidecar, opens the window
 scripts/         build-desktop.ts, ingest-desktop.ts, demo-db.ts
 ```
 
-**No ORM, no state library, no UI kit.** Dependencies are `hono`, `ts-fsrs`, `zod`, `react`,
+**No ORM, no state library, no UI kit.** Dependencies are `hono`, `ts-fsrs`, `react`,
 `vite`, `@codemirror/*`, and `@tauri-apps/cli` for the desktop build.
 
 ### Data model

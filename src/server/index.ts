@@ -350,8 +350,10 @@ app.post("/api/run", async (c) => {
 
   const language = body.language ?? "python3";
 
-  // Prefer the imported full test suite: 37-144 executable cases instead of 2-3 public
-  // examples, so it catches far more.
+  // Prefer the imported full test suite: 3-451 raw cases per problem instead of 2-3 public
+  // examples, so it catches far more. The suite path drops cases that are ungradeable (a `null`
+  // expectation, a poisoned reference output, a void entry point), so the graded count is lower:
+  // 19-128 across the 74 problems that have metadata.
   //
   // This is not Python-only, and it never needed to be. `io_cases` is a JSON array of
   // `{input: "nums = [3,3]", output: "[0,1]"}` pairs and both sides are parsed in TypeScript,

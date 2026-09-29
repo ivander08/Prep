@@ -2,8 +2,9 @@
  * Import full test suites from `newfacade/LeetCodeDataset`.
  * LeetCode's GraphQL API exposes only `exampleTestcases`, the 2-3 public examples, so a
  * solution that passes locally can still fail LeetCode's hidden tests.
- * The dataset, verified by running it: ~2,869 problems, one JSON object per line, 37-144
- * executable `assert candidate(...) == expected` statements each, `entry_point` as a dotted
+ * The dataset, verified by running it: 2,869 problems, one JSON object per line, 3-451
+ * `assert candidate(...) == expected` statements each (measured over the stored `io_cases`),
+ * `entry_point` as a dotted
  * path (`Solution().shortestDistanceAfterQueries`), a `prompt` block carrying imports and a
  * ListNode/TreeNode prelude, Apache-2.0. Sampling 11 records: every `task_id` joined to our
  * catalog by slug (11/11) and the reference solution passed its own tests.
