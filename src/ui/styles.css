@@ -410,10 +410,17 @@ h2 {
 /* Today's cell is outlined rather than recoloured, so an inactive today is still findable. */
 .streak-cell.today { outline: 1px solid var(--signal-dim); outline-offset: 1px; }
 
+/* `gap` is load-bearing, not decoration. `justify-content: space-between` distributes only
+   space the container HAS, and `width: max-content` sizes it to exactly its content — so
+   there was none to distribute and the summary and the scale ran together as
+   "1 active day · best 1less". The two children are separate elements, so nothing else
+   supplied the missing space. `space-between` is kept for the case where `max-width: 100%`
+   does clamp the box on a narrow screen: then the gap widens instead of the items colliding. */
 .streak-legend {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 16px;
   width: max-content;
   max-width: 100%;
   margin-top: 6px;
