@@ -449,8 +449,18 @@ export async function runInLanguage(opts: {
     }
   };
 
+  /**
+   * Whether to put the child in its own process group.
+   *
+   * POSIX only, and not merely because Windows lacks the concept: spawning `go run` detached on
+   * Windows made it fail with `error obtaining buildID for go tool compile` and take 41 s instead
+   * of 1.2 s, because the Go toolchain does not tolerate the detached console. `taskkill /T` walks
+   * the child tree without needing a group, so Windows loses nothing.
+   */
+  const DETACH = process.platform !== "win32";
+
   const run = async (cmd: string[], timeout: number) => {
-    const proc = Bun.spawn(cmd, { stdout: "pipe", stderr: "pipe", cwd: dir, detached: true });
+    const proc = Bun.spawn(cmd, { stdout: "pipe", stderr: "pipe", cwd: dir, detached: DETACH });
     const killer = setTimeout(() => killTree(proc), timeout);
     try {
       const [out, err] = await Promise.all([

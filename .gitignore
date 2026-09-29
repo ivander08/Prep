@@ -16,6 +16,20 @@ src-tauri/gen/
 # Secrets
 .env
 .env.local
+# Any other dotenv variant (`.env.production`, `.env.development.local`, …). `.env.example` is
+# re-included because it is the documented template and holds no values.
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+
+# SQLite, including the WAL and shared-memory sidecars. `data/` covers the default location, but
+# `PREP_DB_PATH` can point anywhere, and a `prep.db-wal` beside the repo root would otherwise be
+# committed.
+*.db
+*.db-wal
+*.db-shm
 
 # OS
 .DS_Store

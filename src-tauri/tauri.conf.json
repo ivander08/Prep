@@ -5,7 +5,8 @@
   "identifier": "com.prep.desktop",
   "build": {
     "frontendDist": "../dist/ui",
-    "beforeBuildCommand": "bun run build:desktop"
+    "beforeBuildCommand": "bun run build:desktop",
+    "beforeDevCommand": "bun run build:desktop"
   },
   "app": {
     "windows": [],
