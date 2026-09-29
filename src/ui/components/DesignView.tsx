@@ -73,9 +73,12 @@ type Entry = { kind: "candidate"; text: string } | { kind: "turn"; turn: DesignT
 export function DesignView({
   onBuild,
   initialConcept = null,
+  initialSlug = null,
 }: {
   onBuild: (slug: string) => void;
   initialConcept?: string | null;
+  /** Set by a due row, so the prompt scheduled for review opens directly. */
+  initialSlug?: string | null;
 }) {
   const [prompts, setPrompts] = useState<DesignPromptSummary[]>([]);
   const [session, setSession] = useState<DesignSession | null>(null);
@@ -125,11 +128,24 @@ export function DesignView({
   const [phaseStartedAt, setPhaseStartedAt] = useState(() => Date.now());
 
   /**
+   * The slug the pending target already opened.
+   *
+   * A ref rather than state because it exists only to stop the bridge firing twice for the same
+   * slug, and re-rendering to record that would be a render for a bookkeeping detail.
+   */
+  const bridged = useRef<string | null>(null);
+
+  /**
    * Load the prompt list, then resume the round that is still in progress.
    *
    * The resume is what makes `/draft` persistence observable: a reload is the one event that
    * would lose an unfinished round, and without this the server-side draft is written and
    * never read back. It runs after the prompt list so the round has a title to render against.
+   *
+   * A pending target from a due row is started at the end, and only when the resume found no
+   * open round — an unfinished round is the one thing a navigation must not throw away. It is
+   * sequenced inside this effect rather than a second one because two effects on mount would
+   * race, and the slug could overwrite the resumed round or start a second session.
    */
   useEffect(() => {
     void (async () => {
@@ -140,12 +156,21 @@ export function DesignView({
         setError(String(e));
       }
 
+      let resumed = false;
       try {
         const open = await api<{ session: DesignSession | null }>("/api/design/resume");
-        if (open.session) hydrate(open.session);
+        if (open.session) {
+          resumed = true;
+          hydrate(open.session);
+        }
       } catch {
         // A failed resume is not worth an error banner: the prompt list still works, and the
         // candidate can start a fresh round.
+      }
+
+      if (initialSlug && !resumed && bridged.current !== initialSlug) {
+        bridged.current = initialSlug;
+        void start(initialSlug);
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps

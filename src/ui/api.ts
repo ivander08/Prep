@@ -76,31 +76,45 @@ export type AttemptResponse = {
   intervalDays: number | null;
 };
 
-export type DueItem = {
-  qid: number;
-  slug: string;
+export type DueTrack = "dsa" | "pattern" | "concept" | "component" | "design" | "behavioral" | "stack";
+
+/** One item due for review, from any track. */
+export type DueTrackItem = {
+  kind: DueTrack;
+  /** The identity that opens this item: a problem slug for `dsa`, a catalogue slug otherwise. */
+  ref: string;
   title: string;
-  difficulty: string;
   due: string;
   reps: number;
   lapses: number;
+  /** For a `pattern` row, the problem to re-solve. Null otherwise, and null if nothing passed. */
+  problemSlug: string | null;
 };
 
 /**
- * A pattern due for review, with the problem to re-solve for it.
- *
- * The grade for a pattern card comes from the attempt on `qid`, not from a self-rating —
- * the same behavioural rule every other card follows.
+ * The badge and the destination view for each track. One table rather than a switch at each
+ * use site: the row renderer needs the label and the click handler needs the view, and they
+ * must agree about which track is which.
  */
-export type DuePattern = {
-  pattern: string;
-  due: string;
-  reps: number;
-  lapses: number;
-  qid: number;
-  slug: string;
-  title: string;
-  difficulty: string;
+export const DUE_TRACK_LABEL: Record<DueTrack, string> = {
+  dsa: "Problem",
+  pattern: "Pattern",
+  concept: "Concept",
+  component: "Build",
+  design: "Design",
+  behavioral: "Behavioral",
+  stack: "Stack",
+};
+
+/** Which nav view a due item opens. */
+export const DUE_TRACK_VIEW: Record<DueTrack, "list" | "roadmap" | "fundamentals" | "components" | "design" | "behavioral" | "stack"> = {
+  dsa: "list",
+  pattern: "roadmap",
+  concept: "fundamentals",
+  component: "components",
+  design: "design",
+  behavioral: "behavioral",
+  stack: "stack",
 };
 
 // ---------------------------------------------------------------------------
@@ -470,15 +484,6 @@ export type TrackSession = {
   answerMd: string;
   startedAt: string;
   endedAt: string | null;
-};
-
-/** A prose item due for review. */
-export type DueProse = {
-  slug: string;
-  title: string;
-  due: string;
-  reps: number;
-  lapses: number;
 };
 
 /**

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   api,
   GRADE_LABEL,
@@ -29,9 +29,12 @@ import { Row } from "./Row";
  */
 export function ProseTrackView({
   kind,
+  initialSlug,
   onSolved,
 }: {
   kind: "behavioral" | "stack";
+  /** Set by a due row, so the prompt scheduled for review opens directly. */
+  initialSlug?: string | null;
   onSolved: () => void;
 }): React.JSX.Element {
   const [groups, setGroups] = useState<ProsePromptGroup[]>([]);
@@ -49,11 +52,24 @@ export function ProseTrackView({
   const label = kind === "behavioral" ? "Behavioral" : "Stack";
 
   /**
+   * The slug the pending target already opened.
+   *
+   * A ref rather than state because it exists only to stop the bridge firing twice for the same
+   * slug, and re-rendering to record that would be a render for a bookkeeping detail.
+   */
+  const bridged = useRef<string | null>(null);
+
+  /**
    * Load the prompt list, then resume the attempt still in progress.
    *
    * The resume is what makes the draft persistence observable: a reload is the one event that
    * would lose an unfinished answer, and without this the server-side draft is written and
    * never read back. It runs after the list so the pane has a prompt to render against.
+   *
+   * A pending target from a due row is opened at the end, and only when the resume found
+   * nothing — an unfinished attempt is the one thing a navigation must not throw away. It is
+   * sequenced inside this effect rather than a second one because two effects on mount would
+   * race, and the slug could start a session over the resumed one.
    */
   useEffect(() => {
     void (async () => {
@@ -64,12 +80,20 @@ export function ProseTrackView({
       } catch (e) {
         setError(String(e));
       }
+      let resumed = false;
       try {
         const open = await api<{ session: TrackSession | null }>(`/api/tracks/${kind}/resume`);
-        if (open.session) void hydrate(open.session);
+        if (open.session) {
+          resumed = true;
+          void hydrate(open.session);
+        }
       } catch {
         // A failed resume is not worth an error banner: the prompt list still works and a
         // fresh attempt can be started.
+      }
+      if (initialSlug && !resumed && bridged.current !== initialSlug) {
+        bridged.current = initialSlug;
+        void start(initialSlug);
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps

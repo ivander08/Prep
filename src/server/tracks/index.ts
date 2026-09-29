@@ -18,7 +18,7 @@
 
 import type { Grade } from "ts-fsrs";
 import { db } from "../db.ts";
-import { dueProse, reviewProse } from "../srs.ts";
+import { reviewProse } from "../srs.ts";
 import { gradeProseAnswer, type TrackGradeResult } from "./grade.ts";
 import {
   GROUP_LABEL as BEHAVIORAL_LABEL,
@@ -241,6 +241,3 @@ export async function finishTrackSession(
   const s = reviewProse(row.kind, prompt.slug, prompt.title, result.grade as Grade);
   return { ...result, nextDue: s.due.toISOString(), intervalDays: s.intervalDays };
 }
-
-/** Prose items of this kind due for review. Re-exported so the route file imports one module. */
-export { dueProse };

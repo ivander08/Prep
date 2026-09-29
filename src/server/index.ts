@@ -14,7 +14,7 @@ import { buildTestCases, runFullTests, type FullTestRow, type ProblemMeta } from
 import { hasStructuredSuite, runSuiteAnyLanguage } from "./grading.ts";
 import { runInLanguage } from "./runner.ts";
 import { LANGUAGES, detectAvailableLanguages } from "./languages.ts";
-import { dueQueue, duePatterns, nextUnsolved, listProgress, reviewCard, reviewPattern, reviewDesign, gradeAttempt, GRADE_LIMIT_SECONDS } from "./srs.ts";
+import { dueItems, duePatterns, nextUnsolved, listProgress, reviewCard, reviewPattern, reviewDesign, gradeAttempt, GRADE_LIMIT_SECONDS } from "./srs.ts";
 import type { Grade } from "ts-fsrs";
 import { tutorTurn, reviewAttempt } from "./tutor/index.ts";
 import { hintCeiling, ceilingReason } from "./tutor/policy.ts";
@@ -25,7 +25,6 @@ import { designTurn, gradeDesign, latestOpenSession, loadSession, saveDraft, sta
 import { GROUP_LABEL, GROUP_ORDER, getDesignConcept, listDesignConcepts } from "./design/concepts.ts";
 import { PROBE_FAMILIES } from "./design/policy.ts";
 import {
-  dueProse,
   finishTrackSession,
   getTrackPrompt,
   latestOpenTrackSession,
@@ -483,20 +482,15 @@ app.post("/api/attempts", async (c) => {
 });
 
 /**
- * Problems due, plus the prose tracks' due items.
+ * Every item due for review, across every track.
  *
- * The prose lists ride along on this endpoint rather than getting one each: the Review view is
- * the only consumer and it renders all three sections from one fetch, so a second round trip
- * would exist only to be joined back together in the client.
+ * One list rather than one section per kind: `kind` takes six values and three of them had no
+ * reader at all, so their due dates were written and never read back. The row's `kind` tells
+ * the client which track it belongs to and therefore where clicking it goes.
  */
 app.get("/api/review", (c) => {
-  const list = c.req.query("list") ?? null;
-  const limit = Math.min(Number(c.req.query("limit") ?? 20), 100);
-  return c.json({
-    due: dueQueue(list, limit),
-    behavioralDue: dueProse("behavioral"),
-    stackDue: dueProse("stack"),
-  });
+  const limit = Math.min(Number(c.req.query("limit") ?? 40), 200);
+  return c.json({ due: dueItems(limit) });
 });
 
 /** Patterns due for review, each with a representative problem to re-solve. */

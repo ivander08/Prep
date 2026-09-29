@@ -216,17 +216,6 @@ export function reviewItem(itemId: number, grade: Grade, now = new Date()): { du
   return { due: next.due, intervalDays: next.scheduled_days };
 }
 
-/** A problem due for review. */
-export type DueItem = {
-  qid: number;
-  slug: string;
-  title: string;
-  difficulty: string;
-  due: string;
-  reps: number;
-  lapses: number;
-};
-
 /** A problem not yet solved, in roadmap order. */
 export type NextItem = {
   qid: number;
@@ -236,27 +225,6 @@ export type NextItem = {
   position: number;
   attempted: number;
 };
-
-/** Problems due for review, in a list, oldest-due first. */
-export function dueQueue(listName: string | null, limit = 20): DueItem[] {
-  const now = new Date().toISOString();
-  const sql = listName
-    ? `SELECT c.qid, p.slug, p.title, p.difficulty, c.due, c.reps, c.lapses
-       FROM cards c
-       JOIN problems p ON p.qid = c.qid
-       JOIN lists l ON l.qid = c.qid AND l.name = ?
-       WHERE c.suspended = 0 AND c.due <= ?
-       ORDER BY c.due ASC LIMIT ?`
-    : `SELECT c.qid, p.slug, p.title, p.difficulty, c.due, c.reps, c.lapses
-       FROM cards c
-       JOIN problems p ON p.qid = c.qid
-       WHERE c.suspended = 0 AND c.due <= ?
-       ORDER BY c.due ASC LIMIT ?`;
-
-  return listName
-    ? db.query<DueItem, [string, string, number]>(sql).all(listName, now, limit)
-    : db.query<DueItem, [string, number]>(sql).all(now, limit);
-}
 
 /** A pattern due for review, with a representative problem to re-solve. */
 export type DuePattern = {
@@ -336,37 +304,66 @@ export function reviewDesign(
   return reviewItem(ensureKindItem("design", slug, title, null), grade, now);
 }
 
-/**
- * Prose items due for review, for one kind.
- *
- * A sibling of `duePatterns` rather than a generalisation of it: that query inner-joins
- * `problems` to find a representative solved attempt, which a prose item has no equivalent of.
- * This one joins nothing — `items.title` is the whole payload, because a behavioral prompt is
- * reviewed by answering it again, not by re-solving a problem.
- *
- * The `kind` filter is bound as a parameter rather than interpolated, so the two tracks share
- * one query and one index (`idx_item_cards_due`) instead of growing a copy each.
- */
-export function dueProse(kind: "behavioral" | "stack", limit = 20): DueProse[] {
-  return db
-    .query<DueProse, [string, string, number]>(
-      `SELECT i.ref AS slug, i.title, ic.due, ic.reps, ic.lapses
-       FROM item_cards ic
-       JOIN items i ON i.id = ic.item_id AND i.kind = ?
-       WHERE ic.due <= ?
-       ORDER BY ic.due ASC LIMIT ?`,
-    )
-    .all(kind, new Date().toISOString(), limit);
-}
+/** Which track a due item belongs to. Drives the row's badge and where clicking it goes. */
+export type DueTrack = "dsa" | "pattern" | "concept" | "component" | "design" | "behavioral" | "stack";
 
-/** A prose item due for review. `title` is the whole payload — see `dueProse`. */
-export type DueProse = {
-  slug: string;
+/**
+ * Every item due for review, across every track, oldest-due first.
+ *
+ * `cards` (DSA) and `item_cards` (everything else) are deliberately separate tables, so this
+ * is a UNION of the two rather than a join. The non-DSA half is a single query over
+ * `item_cards JOIN items` with no `kind` filter — that is the whole point: the readers this
+ * replaced each pinned one kind, so three of the six kinds had no reader at all.
+ *
+ * `ref` is the item's identity within its track, and it is always the value that OPENS the
+ * item: the problem slug for DSA, the catalogue slug for the rest. For a `pattern` row it is
+ * the pattern NAME, which is what `items.ref` holds.
+ *
+ * `problemSlug` carries the extra thing a pattern review needs. `duePatterns` picks the
+ * problem with the MOST RECENT passing attempt, so a pattern review re-solves something
+ * freshest in memory rather than a random member — that is worth keeping. It is a separate
+ * nullable column rather than folded into `ref` because the two cases must stay
+ * distinguishable: a pattern with no passing attempt has nothing to re-solve, and the client
+ * opens the Roadmap for it instead of a problem. Folding both into `ref` would make the two
+ * indistinguishable at the click site.
+ */
+export type DueTrackItem = {
+  kind: DueTrack;
+  /** The identity that opens this item: a problem slug for `dsa`, a catalogue slug otherwise. */
+  ref: string;
   title: string;
   due: string;
   reps: number;
   lapses: number;
+  /**
+   * For a `pattern` row, the problem to re-solve — the one with the most recent passing
+   * attempt. Null for every other kind, and null for a pattern nothing has passed yet.
+   */
+  problemSlug: string | null;
 };
+
+export function dueItems(limit = 40): DueTrackItem[] {
+  // The timestamp is bound TWICE — once per branch of the UNION — then the limit. Three
+  // placeholders, three arguments, in that order.
+  const now = new Date().toISOString();
+  return db
+    .query<DueTrackItem, [string, string, number]>(`
+      SELECT 'dsa' AS kind, p.slug AS ref, p.title, c.due, c.reps, c.lapses,
+             NULL AS problemSlug
+      FROM cards c JOIN problems p ON p.qid = c.qid
+      WHERE c.suspended = 0 AND c.due <= ?
+      UNION ALL
+      SELECT i.kind AS kind, i.ref AS ref, i.title, ic.due, ic.reps, ic.lapses,
+             CASE WHEN i.kind = 'pattern' THEN
+               (SELECT p2.slug FROM attempts a
+                JOIN problems p2 ON p2.qid = a.qid AND p2.pattern = i.ref
+                WHERE a.passed = 1 ORDER BY a.ended_at DESC LIMIT 1)
+             ELSE NULL END AS problemSlug
+      FROM item_cards ic JOIN items i ON i.id = ic.item_id
+      WHERE ic.due <= ?
+      ORDER BY due ASC LIMIT ?`)
+    .all(now, now, limit);
+}
 
 /**
  * Schedule a prose-track item.

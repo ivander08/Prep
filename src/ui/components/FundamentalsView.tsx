@@ -26,8 +26,22 @@ type ModulesResponse = {
  * payload seeds the editor, and hiding it client-side would be theatre — but revealing it
  * defeats the point of the exercise, so the UI offers it only after `accepted`.
  */
-export function FundamentalsView({ onSolved }: { onSolved: () => void }) {
-  const [lang, setLang] = useState("python3");
+export function FundamentalsView({
+  initialSlug,
+  onSolved,
+}: {
+  /** Set by a due row, so the concept scheduled for review opens directly. */
+  initialSlug?: string | null;
+  onSolved: () => void;
+}) {
+  const [lang, setLang] = useState(() => {
+    // The slug carries its language prefix (`python3/dynamic-array`), so arriving from a due
+    // row selects that language rather than whichever one was last used — otherwise the slug
+    // would not match the loaded list and the view would silently fall back to the first
+    // concept, making the deep-link appear to do nothing.
+    const prefix = initialSlug?.split("/")[0];
+    return prefix && prefix.length > 0 ? prefix : "python3";
+  });
   const [data, setData] = useState<ModulesResponse | null>(null);
   const [activeSlug, setActiveSlug] = useState<string | null>(null);
   const [concept, setConcept] = useState<ConceptDetail | null>(null);
@@ -60,7 +74,13 @@ export function FundamentalsView({ onSolved }: { onSolved: () => void }) {
       if (!r) return;
       const first = r.modules[0]?.concepts[0]?.slug ?? null;
       const keep = activeSlug && r.modules.some((m) => m.concepts.some((c) => c.slug === activeSlug));
-      setActiveSlug(keep ? activeSlug : first);
+      // The pending target wins on arrival: it is a deliberate navigation, and the slug
+      // includes the language prefix, so it also selects the right language.
+      const fromBridge =
+        initialSlug && r.modules.some((m) => m.concepts.some((c) => c.slug === initialSlug))
+          ? initialSlug
+          : null;
+      setActiveSlug(fromBridge ?? (keep ? activeSlug : first));
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lang, loadList]);

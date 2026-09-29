@@ -20,9 +20,10 @@ import {
   api,
   ApiError,
   GRADE_LABEL,
-  type DueItem,
-  type DuePattern,
-  type DueProse,
+  DUE_TRACK_LABEL,
+  DUE_TRACK_VIEW,
+  type DueTrack,
+  type DueTrackItem,
   type ListSummary,
   type MilestoneState,
   type ProblemDetail,
@@ -109,19 +110,7 @@ export function App() {
   const [lists, setLists] = useState<ListSummary[]>([]);
   const [catalog, setCatalog] = useState(0);
   const [activeList, setActiveList] = useState<string>("neetcode150");
-  const [due, setDue] = useState<DueItem[]>([]);
-  const [duePatterns, setDuePatterns] = useState<DuePattern[]>([]);
-  /**
-   * The prose tracks' due items, keyed by kind.
-   *
-   * Kept as one map rather than two states because the two lists are always read and written
-   * together — they come from the same response and are rendered by the same component — and
-   * two `useState` calls would be two chances for them to drift apart.
-   */
-  const [dueProse, setDueProse] = useState<{ behavioral: DueProse[]; stack: DueProse[] }>({
-    behavioral: [],
-    stack: [],
-  });
+  const [due, setDue] = useState<DueTrackItem[]>([]);
   const [streak, setStreak] = useState<StreakStats | null>(null);
   const [milestones, setMilestones] = useState<MilestoneState[]>([]);
   const [openSlug, setOpenSlug] = useState<string | null>(null);
@@ -137,10 +126,43 @@ export function App() {
   const [navOpen, setNavOpen] = useState(false);
   /** The component the Build view should open on arrival, set by the Design bridge. */
   const [componentSlug, setComponentSlug] = useState<string | null>(null);
+  /** The item a non-DSA track should open on arrival, set by a due row. */
+  const [trackTarget, setTrackTarget] = useState<{ kind: DueTrack; ref: string } | null>(null);
 
   const openComponent = useCallback((slug: string) => {
     setComponentSlug(slug);
     setView("components");
+  }, []);
+
+  /**
+   * Open a track on a specific item.
+   *
+   * Takes the whole item rather than a kind and a ref, because a `pattern` row has a second
+   * destination to consider and that decision belongs in one place. With a `(kind, ref)`
+   * signature both call sites (Review and Overview) would have to repeat the pattern branch.
+   *
+   * A `pattern` row carries the problem to re-solve in `problemSlug`, and re-solving that
+   * problem IS the pattern review — the attempt's grade drives the pattern card through
+   * `/api/review/patterns/:pattern/grade`. So it opens the problem workspace directly, which is
+   * what the old "Patterns due" rows did. A pattern with nothing passed has `problemSlug: null`
+   * and falls back to the Roadmap, where its problems and reference card live; no highlight is
+   * added there, because every pattern's problem list is expanded by default already.
+   *
+   * DSA goes through the existing `openSlug` workspace. The other kinds set a pending target and
+   * switch view; each view reads it on arrival the way `ComponentsView` already reads its
+   * `initialSlug` bridge from a finished design round.
+   */
+  const onOpenTrack = useCallback((item: DueTrackItem) => {
+    if (item.kind === "pattern" && item.problemSlug) {
+      setOpenSlug(item.problemSlug);
+      return;
+    }
+    if (item.kind === "dsa") {
+      setOpenSlug(item.ref);
+      return;
+    }
+    setTrackTarget({ kind: item.kind, ref: item.ref });
+    setView(DUE_TRACK_VIEW[item.kind]);
   }, []);
 
   const refreshLists = useCallback(async () => {
@@ -155,13 +177,8 @@ export function App() {
 
   const loadDue = useCallback(async () => {
     try {
-      const r = await api<{ due: DueItem[]; behavioralDue: DueProse[]; stackDue: DueProse[] }>(
-        "/api/review?limit=50",
-      );
+      const r = await api<{ due: DueTrackItem[] }>("/api/review?limit=40");
       setDue(r.due);
-      setDueProse({ behavioral: r.behavioralDue, stack: r.stackDue });
-      const p = await api<{ due: DuePattern[] }>("/api/review/patterns?limit=20");
-      setDuePatterns(p.due);
     } catch (e) {
       setError(String(e));
     }
@@ -253,9 +270,11 @@ export function App() {
                     key={id}
                     className={view === id ? "active" : ""}
                     onClick={() => {
-                      // An explicit nav click clears the Design bridge's target, so Build opens
-                      // on the default rather than re-opening whatever round was last finished.
+                      // An explicit nav click clears the pending targets, so Build opens on the
+                      // default rather than re-opening whatever round was last finished, and a
+                      // track does not re-open the item a due row selected.
                       if (id === "components") setComponentSlug(null);
+                      setTrackTarget(null);
                       setView(id);
                       setNavOpen(false);
                     }}
@@ -310,36 +329,49 @@ export function App() {
             due={due}
             streak={streak}
             milestones={milestones}
-            onOpen={setOpenSlug}
+            onOpenTrack={onOpenTrack}
           />
         ) : null}
 
-        {view === "review" ? (
-          <Review
-            due={due}
-            duePatterns={duePatterns}
-            dueProse={dueProse}
-            onOpen={setOpenSlug}
-            onOpenTrack={setView}
-            onRefresh={loadDue}
-          />
-        ) : null}
+        {view === "review" ? <Review due={due} onOpenTrack={onOpenTrack} onRefresh={loadDue} /> : null}
 
         {view === "list" ? <ProblemList listName={activeList} onOpen={setOpenSlug} /> : null}
 
         {view === "roadmap" ? <RoadmapView onOpen={setOpenSlug} /> : null}
 
-        {view === "fundamentals" ? <FundamentalsView onSolved={onSolved} /> : null}
-
-        {view === "design" ? <DesignView onBuild={openComponent} /> : null}
-
-        {view === "components" ? (
-          <ComponentsView initialSlug={componentSlug} onSolved={onSolved} />
+        {view === "fundamentals" ? (
+          <FundamentalsView
+            initialSlug={trackTarget?.kind === "concept" ? trackTarget.ref : null}
+            onSolved={onSolved}
+          />
         ) : null}
 
-        {view === "behavioral" ? <ProseTrackView kind="behavioral" onSolved={onSolved} /> : null}
+        {view === "design" ? (
+          <DesignView
+            onBuild={openComponent}
+            initialSlug={trackTarget?.kind === "design" ? trackTarget.ref : null}
+          />
+        ) : null}
 
-        {view === "stack" ? <ProseTrackView kind="stack" onSolved={onSolved} /> : null}
+        {view === "components" ? (
+          <ComponentsView initialSlug={trackTarget?.kind === "component" ? trackTarget.ref : componentSlug} onSolved={onSolved} />
+        ) : null}
+
+        {view === "behavioral" ? (
+          <ProseTrackView
+            kind="behavioral"
+            initialSlug={trackTarget?.kind === "behavioral" ? trackTarget.ref : null}
+            onSolved={onSolved}
+          />
+        ) : null}
+
+        {view === "stack" ? (
+          <ProseTrackView
+            kind="stack"
+            initialSlug={trackTarget?.kind === "stack" ? trackTarget.ref : null}
+            onSolved={onSolved}
+          />
+        ) : null}
 
         {view === "weakness" ? <MasteryView /> : null}
 
@@ -375,14 +407,14 @@ function Overview({
   due,
   streak,
   milestones,
-  onOpen,
+  onOpenTrack,
 }: {
   lists: ListSummary[];
   catalog: number;
-  due: DueItem[];
+  due: DueTrackItem[];
   streak: StreakStats | null;
   milestones: MilestoneState[];
-  onOpen: (slug: string) => void;
+  onOpenTrack: (item: DueTrackItem) => void;
 }) {
   const totalSolved = useMemo(() => lists.reduce((a, l) => a + l.solved, 0), [lists]);
 
@@ -463,10 +495,12 @@ function Overview({
       ) : (
         <div className="table">
           {due.slice(0, 8).map((d) => (
-            <Row key={d.qid} onClick={() => onOpen(d.slug)}>
-              <span className="qid">{d.qid}</span>
+            <Row key={`${d.kind}:${d.ref}`} onClick={() => onOpenTrack(d)}>
+              <span className="qid mono muted small">{DUE_TRACK_LABEL[d.kind]}</span>
               <span className="title">{d.title}</span>
-              <span className={`badge ${d.difficulty}`}>{d.difficulty}</span>
+              <span className="muted small">
+                {d.reps} rep{d.reps === 1 ? "" : "s"}
+              </span>
             </Row>
           ))}
         </div>
@@ -529,95 +563,45 @@ function Overview({
 
 function Review({
   due,
-  duePatterns,
-  dueProse,
-  onOpen,
   onOpenTrack,
   onRefresh,
 }: {
-  due: DueItem[];
-  duePatterns: DuePattern[];
-  dueProse: { behavioral: DueProse[]; stack: DueProse[] };
-  onOpen: (s: string) => void;
-  onOpenTrack: (view: "behavioral" | "stack") => void;
+  due: DueTrackItem[];
+  /** Open a track on a specific item. */
+  onOpenTrack: (item: DueTrackItem) => void;
   onRefresh: () => void;
-}) {
+}): React.JSX.Element {
   return (
     <>
       <div className="spread">
         <h1>Review</h1>
         <button onClick={onRefresh}>Refresh</button>
       </div>
-      <p className="muted">
-        Re-solve these from memory, no hints. Your grade is derived from whether the tests pass — not from how
-        confident you feel.
+      <h2>Due now</h2>
+      <p className="muted small">
+        Everything scheduled across every track, oldest due first. A grade is derived from
+        behaviour — tests passing, or a rubric quoting your own words.
       </p>
-      <div className="stack-md">
-        {due.map((d) => (
-          <Row key={d.qid} onClick={() => onOpen(d.slug)}>
-            <span className="qid">{d.qid}</span>
-            <span className="title">{d.title}</span>
-            <span className="muted small">
-              {d.reps} reps{d.lapses > 0 ? `, ${d.lapses} lapses` : ""}
-            </span>
-          </Row>
-        ))}
-        {due.length === 0 ? <div className="empty">Nothing due right now.</div> : null}
-      </div>
-
-      {duePatterns.length > 0 ? (
-        <>
-          <h2>Patterns due</h2>
-          <p className="muted small">
-            Re-solve the problem below from memory. The pattern's next review is scheduled from how
-            that attempt goes — pass it cleanly and it goes away for longer.
-          </p>
-          <div className="table">
-            {duePatterns.map((p) => (
-              <Row key={p.pattern} onClick={() => onOpen(p.slug)}>
-                <span className="qid">{p.reps}×</span>
-                <span className="title">
-                  {p.pattern}
-                  <span className="muted small"> · re-solve {p.title}</span>
-                </span>
-                <span className={`badge ${p.difficulty}`}>{p.difficulty}</span>
-              </Row>
-            ))}
-          </div>
-        </>
-      ) : null}
-
-      {/*
-        The prose tracks. Each section is omitted entirely when its list is empty, matching how
-        "Patterns due" is handled above — an empty heading with a "nothing here" line would
-        repeat three times on a quiet day and bury the problems that ARE due.
-
-        Clicking opens the track on its prompt list rather than straight into the prompt: the
-        track owns its resume logic, and jumping directly would need a second way to start a
-        session that bypasses the one the view already has.
-      */}
-      {(["behavioral", "stack"] as const).map((kind) =>
-        dueProse[kind].length > 0 ? (
-          <div key={kind}>
-            <h2>{kind === "behavioral" ? "Behavioral due" : "Stack due"}</h2>
-            <p className="muted small">
-              Answer these again from memory. The prompt is scheduled from the rubric grade, so a
-              fuller answer moves it out further.
-            </p>
-            <div className="table">
-              {dueProse[kind].map((p) => (
-                <Row key={p.slug} onClick={() => onOpenTrack(kind)}>
-                  <span className="qid">{p.reps}×</span>
-                  <span className="title">{p.title}</span>
-                  <span className="muted small">
-                    {p.reps} rep{p.reps === 1 ? "" : "s"}
-                    {p.lapses > 0 ? `, ${p.lapses} lapses` : ""}
-                  </span>
-                </Row>
-              ))}
-            </div>
-          </div>
-        ) : null,
+      {due.length === 0 ? (
+        <div className="empty">Nothing due. Solve something and it returns on a schedule — 4 days, then 34, then 89.</div>
+      ) : (
+        <div className="table">
+          {due.map((d) => (
+            <Row key={`${d.kind}:${d.ref}`} onClick={() => onOpenTrack(d)}>
+              {/*
+                The first cell holds the track label rather than a number, because which track a
+                row belongs to is the one thing a mixed list must say per row. The Overview's
+                milestone rows already use this column for a non-numeric marker.
+              */}
+              <span className="qid mono muted small">{DUE_TRACK_LABEL[d.kind]}</span>
+              <span className="title">{d.title}</span>
+              <span className="muted small">
+                {d.reps} rep{d.reps === 1 ? "" : "s"}
+                {d.lapses > 0 ? `, ${d.lapses} lapses` : ""}
+              </span>
+            </Row>
+          ))}
+        </div>
       )}
     </>
   );
