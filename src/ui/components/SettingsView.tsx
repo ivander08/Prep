@@ -17,6 +17,9 @@ const CLEAR_LABEL: Record<string, string> = {
   tutor_turns: "Tutor turns",
   pattern_mastery: "Pattern mastery",
   item_cards: "Fundamentals schedule",
+  milestones: "Milestones",
+  design_sessions: "Design rounds",
+  track_sessions: "Written answers",
 };
 
 const KEEP_LABEL: Record<string, string> = {

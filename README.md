@@ -143,10 +143,10 @@ a stale value saved earlier. The stored key is plaintext in `prep.db` — the sa
 already holds all progress, on a single-user machine — and the UI only ever shows a last-4
 preview.
 
-The same screen has **Reset progress**, which clears every attempt, card, tutor turn, and
-mastery estimate while leaving the catalog intact (re-importing it takes ~70s and there is
-no reason to make you wait). It shows exactly what will be cleared and what will be kept,
-and requires typing `RESET`.
+The same screen has **Reset progress**, which clears every attempt, card, tutor turn, design round,
+written answer, and mastery estimate while leaving the catalog intact (re-importing it takes ~70s
+and there is no reason to make you wait). It shows exactly what will be cleared and what will be
+kept, and requires typing `RESET`.
 
 ## The editor
 

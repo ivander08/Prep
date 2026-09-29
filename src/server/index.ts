@@ -1019,6 +1019,8 @@ app.get("/api/reset/preview", (c) => {
       pattern_mastery: count("pattern_mastery"),
       item_cards: count("item_cards"),
       milestones: count("milestones"),
+      design_sessions: count("design_sessions"),
+      track_sessions: count("track_sessions"),
     },
     keeps: {
       problems: count("problems"),
@@ -1040,6 +1042,16 @@ app.get("/api/reset/preview", (c) => {
  * Deleting `tutor_turns` before `attempts` matters — the foreign key is
  * `tutor_turns.attempt_id REFERENCES attempts(id)`, and with `foreign_keys = ON` the
  * reverse order fails.
+ *
+ * `design_sessions` and `track_sessions` go too. Leaving them behind kept a cleared
+ * milestone cleared only until the next read: `first-design-round` evaluates
+ * `SELECT 1 FROM design_sessions WHERE grade IS NOT NULL AND grade > 1`, so the surviving
+ * row re-awarded the milestone the user had just reset. A half-written round also still
+ * resumed through `latestOpenSession`. Neither table is referenced by a foreign key, so
+ * their position in the list is free.
+ *
+ * `items` is not in the list. Its rows are catalogue-derived (`ensureKindItem` recreates
+ * them on demand) and hold no progress.
  */
 app.post("/api/reset", async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as { confirm?: string };
@@ -1049,7 +1061,10 @@ app.post("/api/reset", async (c) => {
 
   const cleared: Record<string, number> = {};
   db.transaction(() => {
-    for (const t of ["tutor_turns", "attempts", "cards", "item_cards", "pattern_mastery", "milestones"]) {
+    for (const t of [
+      "tutor_turns", "attempts", "cards", "item_cards", "pattern_mastery", "milestones",
+      "design_sessions", "track_sessions",
+    ]) {
       const n = db.query<{ n: number }, []>(`SELECT COUNT(*) AS n FROM ${t}`).get()?.n ?? 0;
       db.run(`DELETE FROM ${t}`);
       cleared[t] = n;
