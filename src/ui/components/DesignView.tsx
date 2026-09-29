@@ -73,11 +73,9 @@ type Entry = { kind: "candidate"; text: string } | { kind: "turn"; turn: DesignT
 
 export function DesignView({
   onBuild,
-  initialConcept = null,
   initialSlug = null,
 }: {
   onBuild: (slug: string) => void;
-  initialConcept?: string | null;
   /** Set by a due row, so the prompt scheduled for review opens directly. */
   initialSlug?: string | null;
 }) {
@@ -91,9 +89,9 @@ export function DesignView({
    * the reference material for the round, so it belongs beside the round, and a candidate who
    * has just been told their trade-off reasoning was weak should land in it without hunting.
    */
-  const [mode, setMode] = useState<"rounds" | "concepts">(initialConcept ? "concepts" : "rounds");
+  const [mode, setMode] = useState<"rounds" | "concepts">("rounds");
   const [groups, setGroups] = useState<DesignConceptGroups | null>(null);
-  const [conceptSlug, setConceptSlug] = useState<string | null>(initialConcept);
+  const [conceptSlug, setConceptSlug] = useState<string | null>(null);
   const [concept, setConcept] = useState<DesignConceptDetail | null>(null);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [entries, setEntries] = useState<Entry[]>([]);
@@ -261,9 +259,8 @@ export function DesignView({
   /**
    * Load the selected concept's body.
    *
-   * `initialConcept` opens the library on a concept the round's result panel recommended, so the
-   * effect runs off `conceptSlug` rather than off a click handler — the deep link and the click
-   * take the same path.
+   * The effect runs off `conceptSlug` so the result panel's links and a prompt chip inside a
+   * concept take the same path.
    */
   useEffect(() => {
     if (!conceptSlug) return;

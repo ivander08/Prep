@@ -14,7 +14,7 @@ import { buildTestCases, runFullTests, type FullTestRow, type ProblemMeta } from
 import { hasStructuredSuite, runSuiteAnyLanguage } from "./grading.ts";
 import { runInLanguage } from "./runner.ts";
 import { LANGUAGES, detectAvailableLanguages } from "./languages.ts";
-import { dueItems, duePatterns, nextUnsolved, listProgress, reviewCard, reviewPattern, reviewDesign, gradeAttempt, GRADE_LIMIT_SECONDS } from "./srs.ts";
+import { dueItems, listProgress, reviewCard, reviewPattern, reviewDesign, gradeAttempt, GRADE_LIMIT_SECONDS } from "./srs.ts";
 import type { Grade } from "ts-fsrs";
 import { tutorTurn, reviewAttempt } from "./tutor/index.ts";
 import { hintCeiling, ceilingReason } from "./tutor/policy.ts";
@@ -493,12 +493,6 @@ app.get("/api/review", (c) => {
   return c.json({ due: dueItems(limit) });
 });
 
-/** Patterns due for review, each with a representative problem to re-solve. */
-app.get("/api/review/patterns", (c) => {
-  const limit = Math.min(Number(c.req.query("limit") ?? 10), 50);
-  return c.json({ due: duePatterns(limit) });
-});
-
 /**
  * Schedule a pattern from an attempt the student just completed.
  *
@@ -520,11 +514,6 @@ app.post("/api/review/patterns/:pattern/grade", async (c) => {
 
   const schedule = reviewPattern(pattern, row.grade as Grade);
   return c.json({ due: schedule.due.toISOString(), intervalDays: schedule.intervalDays });
-});
-
-app.get("/api/next", (c) => {
-  const list = c.req.query("list") ?? "neetcode150";
-  return c.json({ next: nextUnsolved(list, Math.min(Number(c.req.query("limit") ?? 10), 50)) });
 });
 
 // ---------------------------------------------------------------------------
@@ -654,11 +643,8 @@ app.post("/api/design/start", async (c) => {
 /**
  * The round still in progress, or null.
  *
- * The client calls this on mount so a reload — the one event that would otherwise lose an
- * unfinished round — lands back on the work rather than on an empty prompt list.
- *
- * Registered BEFORE `/api/design/:id`: Hono matches in registration order, so a later
- * literal route would be captured by the parameter route and rejected as a bad id.
+ * The client calls this on mount so a reload, the one event that would otherwise lose an
+ * unfinished round, lands back on the work instead of on an empty prompt list.
  */
 app.get("/api/design/resume", (c) => {
   return c.json({ session: latestOpenSession() });
@@ -679,12 +665,7 @@ app.get("/api/design/concepts", (c) => {
 });
 
 /**
- * One concept's body, plus the probe families it answers named rather than numbered.
- *
- * Registered BEFORE `/api/design/:id` for the same reason `/api/design/resume` is: Hono matches
- * in registration order, so a later literal route would be captured by the parameter route and
- * rejected as a bad id. The `/item` route does not strictly need the ordering (two segments),
- * but registering both together keeps the rule visible.
+ * One concept's body, plus the probe families it answers, named instead of numbered.
  */
 app.get("/api/design/concepts/item", (c) => {
   const slug = c.req.query("slug");
@@ -695,16 +676,6 @@ app.get("/api/design/concepts/item", (c) => {
     concept,
     probes: concept.probeFamilies.map((i) => PROBE_FAMILIES[i]?.name ?? null),
   });
-});
-
-app.get("/api/design/:id", (c) => {
-  const id = Number(c.req.param("id"));
-  if (!Number.isInteger(id)) return c.json({ error: "bad id" }, 400);
-  try {
-    return c.json({ session: loadSession(id) });
-  } catch {
-    return c.json({ error: "unknown design session" }, 404);
-  }
 });
 
 app.post("/api/design/:id/turn", async (c) => {
@@ -957,11 +928,6 @@ app.get("/api/mastery", (c) => {
     hintDependence: hintDependence(),
     stats: studyStats(),
   });
-});
-
-app.post("/api/mastery/recompute", (c) => {
-  const n = recomputeMastery();
-  return c.json({ ok: true, patterns: n });
 });
 
 /** The daily streak, derived from the cards that were scheduled. */
@@ -1373,15 +1339,6 @@ app.post("/api/components/run", async (c) => {
     intervalDays: schedule.intervalDays,
   });
 });
-
-app.get("/api/health", (c) =>
-  c.json({
-    ok: true,
-    problems: db.query<{ n: number }, []>("SELECT COUNT(*) AS n FROM problems").get()?.n ?? 0,
-    lists: db.query<{ n: number }, []>("SELECT COUNT(*) AS n FROM lists").get()?.n ?? 0,
-    ingestedAt: getMeta("ingested_at"),
-  }),
-);
 
 const PORT = Number(process.env.PORT ?? 5173);
 

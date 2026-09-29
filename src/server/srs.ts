@@ -216,59 +216,6 @@ export function reviewItem(itemId: number, grade: Grade, now = new Date()): { du
   return { due: next.due, intervalDays: next.scheduled_days };
 }
 
-/** A problem not yet solved, in roadmap order. */
-export type NextItem = {
-  qid: number;
-  slug: string;
-  title: string;
-  difficulty: string;
-  position: number;
-  attempted: number;
-};
-
-/** A pattern due for review, with a representative problem to re-solve. */
-export type DuePattern = {
-  pattern: string;
-  due: string;
-  reps: number;
-  lapses: number;
-  /** The problem to re-solve: most recently solved, so it is the one freshest in memory. */
-  qid: number;
-  slug: string;
-  title: string;
-  difficulty: string;
-};
-
-/**
- * Patterns due for review, oldest-due first.
- *
- * The representative problem is the one with the MOST RECENT passing attempt. Picking the
- * oldest instead would re-solve the problem most likely to have been forgotten for reasons
- * unrelated to the pattern, and picking at random would make the same pattern feel different
- * every time.
- *
- * A pattern with no passed problem is excluded — there is nothing to re-solve, and a card
- * for a pattern never attempted would be scheduled off no evidence at all.
- */
-export function duePatterns(limit = 10): DuePattern[] {
-  return db
-    .query<DuePattern, [string, number]>(
-      `SELECT i.ref AS pattern, ic.due, ic.reps, ic.lapses,
-              p.qid, p.slug, p.title, p.difficulty
-       FROM item_cards ic
-       JOIN items i ON i.id = ic.item_id AND i.kind = 'pattern'
-       JOIN problems p ON p.qid = (
-         SELECT a.qid FROM attempts a
-         JOIN problems pp ON pp.qid = a.qid AND pp.pattern = i.ref
-         WHERE a.passed = 1
-         ORDER BY a.ended_at DESC LIMIT 1
-       )
-       WHERE ic.due <= ?
-       ORDER BY ic.due ASC LIMIT ?`,
-    )
-    .all(new Date().toISOString(), limit);
-}
-
 /**
  * Schedule a pattern card from a completed attempt on its representative problem.
  *
@@ -319,13 +266,12 @@ export type DueTrack = "dsa" | "pattern" | "concept" | "component" | "design" | 
  * item: the problem slug for DSA, the catalogue slug for the rest. For a `pattern` row it is
  * the pattern NAME, which is what `items.ref` holds.
  *
- * `problemSlug` carries the extra thing a pattern review needs. `duePatterns` picks the
+ * `problemSlug` carries the extra thing a pattern review needs. The subquery picks the
  * problem with the MOST RECENT passing attempt, so a pattern review re-solves something
- * freshest in memory rather than a random member — that is worth keeping. It is a separate
- * nullable column rather than folded into `ref` because the two cases must stay
- * distinguishable: a pattern with no passing attempt has nothing to re-solve, and the client
- * opens the Roadmap for it instead of a problem. Folding both into `ref` would make the two
- * indistinguishable at the click site.
+ * freshest in memory. It is a separate nullable column rather than folded into `ref`
+ * because the two cases must stay distinguishable: a pattern with no passing attempt has
+ * nothing to re-solve, and the client opens the Roadmap for it instead of a problem.
+ * Folding both into `ref` would make the two indistinguishable at the click site.
  */
 export type DueTrackItem = {
   kind: DueTrack;
@@ -399,21 +345,6 @@ function ensureKindItem(kind: string, ref: string, title: string, bodyMd: string
     .get(kind, ref);
   if (!row) throw new Error(`failed to create ${kind} item row for ${ref}`);
   return row.id;
-}
-
-/** Next unsolved problems in a list — what to learn next. */
-export function nextUnsolved(listName: string, limit = 10): NextItem[] {
-  return db
-    .query<NextItem, [string, number]>(
-      `SELECT p.qid, p.slug, p.title, p.difficulty, l.position,
-              (SELECT COUNT(*) FROM attempts a WHERE a.qid = p.qid) AS attempted
-       FROM lists l
-       JOIN problems p ON p.qid = l.qid
-       WHERE l.name = ? AND p.paid_only = 0
-         AND NOT EXISTS (SELECT 1 FROM attempts a WHERE a.qid = p.qid AND a.passed = 1)
-       ORDER BY l.position ASC LIMIT ?`,
-    )
-    .all(listName, limit);
 }
 
 /**
