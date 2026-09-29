@@ -17,7 +17,7 @@ import { tags as t } from "@lezer/highlight";
  *
  * `full` is the honest default for a real editor and the wrong default for interview
  * practice: recalling that `defaultdict` or `heapq` exists is part of the exercise, and a
- * popup that names the API removes exactly the part being tested.
+ * popup that names the API removes the part being tested.
  */
 export type AssistLevel = "off" | "words" | "full";
 
@@ -43,12 +43,11 @@ type Props = {
  * Syntax support per language id.
  *
  * The editor previously hardcoded `python()`, so selecting C++ or Java left Python
- * highlighting in place — a real bug, not a cosmetic one: keyword colouring is the fastest
- * signal that the editor is in the mode you think it is.
+ * highlighting in place. That is a real bug, not a cosmetic one: keyword colouring is the
+ * fastest signal that the editor is in the mode you think it is.
  *
  * Python, JavaScript and Go ship completion sources as language data; Java and C++ ship
- * highlighting only. Falling back to Python for an unknown id keeps the editor usable
- * rather than throwing.
+ * highlighting only. An unknown id falls back to Python, so the editor stays usable.
  */
 const SYNTAX: Record<string, () => LanguageSupport> = {
   python3: () => python(),
@@ -65,13 +64,13 @@ function syntaxFor(language: string | undefined): LanguageSupport {
 /**
  * Syntax colours for a dark editor.
  *
- * The previous version used CodeMirror's `defaultHighlightStyle`, which is a LIGHT theme —
- * against a graphite background it produced dark-blue keywords and dark-green strings that
+ * The previous version used CodeMirror's `defaultHighlightStyle`, which is a LIGHT theme.
+ * Against a graphite background it produced dark-blue keywords and dark-green strings that
  * were nearly unreadable. A dark editor needs an explicit dark palette.
  *
  * Colours are drawn from the same instrument palette as the rest of the app: amber for
- * keywords (the readout colour), and a restrained set of desaturated hues for the rest so
- * code reads as data rather than decoration.
+ * keywords (the readout colour), and a restrained set of desaturated hues elsewhere, so
+ * code reads as data, not decoration.
  */
 const darkHighlight = HighlightStyle.define([
   { tag: t.keyword, color: "#e8b84b" },
@@ -97,8 +96,8 @@ const darkHighlight = HighlightStyle.define([
  *
  * `caretColor` is the important line: CodeMirror draws its own caret via a CSS
  * `caret-color` on the content element, not through the `.cm-cursor` element. Styling only
- * `.cm-cursor` left the caret invisible — the amber was never applied to the thing the
- * browser actually blinks.
+ * `.cm-cursor` left the caret invisible, because the amber was never applied to the thing
+ * the browser actually blinks.
  *
  * `drawSelection()` is also enabled so the selection layer is a real DOM element that can
  * be styled; without it the native selection ignores the theme on some platforms.
@@ -135,17 +134,14 @@ const darkTheme = EditorView.theme(
 /**
  * Autocomplete by level.
  *
- * `off` registers nothing at all. `words` registers ONLY `completeAnyWord`, which completes
- * identifiers already present in this document — so it saves retyping `intervals` without
- * ever naming a library API. `full` registers plain `autocompletion()`, which additionally
- * picks up the completion source the syntax extension publishes as language data (Python
- * builtins, JS globals, Go keywords).
+ * `off` registers nothing. `words` registers only `completeAnyWord`, which completes
+ * identifiers already present in this document: it saves retyping `intervals` without ever
+ * naming a library API. `full` registers plain `autocompletion()`, which also picks up the
+ * completion source the syntax extension publishes as language data (Python builtins, JS
+ * globals, Go keywords).
  *
- * The difference is narrower than the names suggest, and that is worth stating rather than
- * implying: `words` is a superset of nothing and a subset of `full`, both complete what you
- * have already typed, and only `full` adds anything from the language. Measured over the five
- * languages here, `full` adds a source for python3, javascript and go, and NOTHING for java
- * and cpp — those two ship highlighting only, so `full` behaves exactly like `words` there.
+ * Measured over the five languages here, `full` adds a source for python3, javascript and
+ * go, and nothing for java and cpp, which ship highlighting only.
  */
 const ASSIST: Record<AssistLevel, () => Extension> = {
   off: () => [],
@@ -154,8 +150,8 @@ const ASSIST: Record<AssistLevel, () => Extension> = {
   full: () => autocompletion({ activateOnTyping: true }),
 };
 
-/** Which languages `full` actually adds completions for, asked of CodeMirror rather than
- * hardcoded — a hand-written list would silently go stale if a language package started
+/** Which languages `full` adds completions for, asked of CodeMirror and not hardcoded: a
+ * hand-written list would go stale with nothing to catch it if a language package started
  * shipping a source. Memoised because building a state is not free and the answer is fixed. */
 const assistLanguageDataCache = new Map<string, boolean>();
 
@@ -184,8 +180,8 @@ export const ASSIST_HELP: Record<AssistLevel, string> = {
 
 /**
  * Shown when `full` is selected in a language with no completion source, where it is
- * indistinguishable from `words`. Says so rather than describing a difference that is not
- * there — a control that silently does nothing is worse than one that admits it.
+ * indistinguishable from `words`. It says so instead of describing a difference that is not
+ * there: a control that does nothing without saying so is worse than one that admits it.
  */
 export const ASSIST_INERT_HELP =
   "Java and C++ publish no completion data, so this is exactly the same as 'Words I typed' here. Use it in Python, JavaScript, or Go to get builtins and keywords.";
@@ -197,14 +193,14 @@ function assistFor(level: AssistLevel | undefined): Extension {
 /**
  * The autocomplete control: a segmented picker plus the explanation for the current level.
  *
- * Replaces a `<select>` whose two non-default options read "Word complete" and "Full assist"
- * — names that do not say what differs, which is the actual problem with the old control.
- * The labels now describe the SOURCE of the suggestions (what you typed vs. the language's
- * own names) and the line underneath states the rule for whichever level is selected.
+ * Replaces a `<select>` whose two non-default options read "Word complete" and "Full assist",
+ * names that do not say what differs. The labels now describe the SOURCE of the suggestions
+ * (what you typed vs. the language's own names) and the line underneath states the rule for
+ * whichever level is selected.
  *
  * It also reports when the level makes no difference: Java and C++ publish no language data,
- * so `full` there is identical to `words`, and a control that silently does nothing is worse
- * than one that says it does nothing.
+ * so `full` there is identical to `words`, and a control that does nothing without saying so
+ * is worse than one that says it does nothing.
  */
 export function AssistPicker({
   value,
@@ -239,8 +235,8 @@ export function AssistPicker({
 
 /**
  * Thin CodeMirror 6 wrapper. CodeMirror owns the DOM, so React must not re-render the
- * editor on every keystroke — the view is created once and updated imperatively only when
- * `value` changes from outside.
+ * editor on every keystroke. The view is created once and updated imperatively, and only
+ * when `value` changes from outside.
  */
 export function CodeEditor({
   value,
@@ -316,8 +312,8 @@ export function CodeEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [readOnly]);
 
-  // Swap syntax support when the language selector changes, without recreating the view —
-  // rebuilding would discard undo history and the caret position.
+  // Swap syntax support when the language selector changes, without recreating the view.
+  // Rebuilding would discard undo history and the caret position.
   useEffect(() => {
     const v = view.current;
     if (!v) return;
@@ -333,17 +329,14 @@ export function CodeEditor({
   /**
    * Highlight the region of the student's own code a hint referred to.
    *
-   * The tutor returns a verbatim quote, not a line number, because line arithmetic is the
-   * unreliable part of what a model produces — a substring can be located by search no
-   * matter how the model counted. The quote is resolved here rather than on the server
-   * because only the editor knows what the document looks like now.
+   * The tutor returns a verbatim quote, not a line number: line arithmetic is the unreliable
+   * part of what a model produces, while a substring can be located by search however the
+   * model counted. The quote is resolved here, not on the server, because only the editor
+   * knows what the document looks like now.
    *
-   * A quote that is absent or appears more than once is dropped instead of guessed at: a
-   * highlight in the wrong place is worse than no highlight, because it asserts a precision
-   * the hint does not have.
-   *
-   * `setDiagnostics` is used rather than a decoration because CodeMirror maps diagnostics
-   * through document changes automatically, so the range survives edits above it.
+   * An absent quote, or one that appears more than once, is dropped instead of guessed at: a
+   * highlight in the wrong place asserts a precision the hint does not have. `setDiagnostics`
+   * is used so CodeMirror maps the range through document changes and it survives edits above.
    */
   useEffect(() => {
     const v = view.current;

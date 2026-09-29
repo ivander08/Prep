@@ -9,8 +9,8 @@ import type { ReactNode } from "react";
  * announced nothing. Rendering a real <button> fixes both at once and keeps the Enter and
  * Space handling in one place instead of twelve.
  *
- * The one `.problem-row` that stays a div is the milestone row on the Overview — it has no
- * `onClick` and is not interactive, so it is content rather than a control.
+ * The one `.problem-row` that stays a div is the milestone row on the Overview. It has no
+ * `onClick` and is not interactive, so it is content, not a control.
  */
 export function Row({
   className = "",

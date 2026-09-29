@@ -24,16 +24,14 @@ import { Row } from "./Row";
 /**
  * The system-design round.
  *
- * Shaped like `FundamentalsView` — prompt list on the left, work on the right — because it is
- * the same activity: pick an exercise, do the work, get a verdict. Reusing `.workspace`
- * means one layout language across the app rather than a second set that drifts.
+ * Shaped like `FundamentalsView` (list left, work right): the same activity, so `.workspace`
+ * is reused for one layout language.
  *
- * THE PHASE STRIP IS GUIDANCE, NOT A GATE. Every published description of the round agrees on
- * the five phases and their order; none agree on the minute allocations. So the timer counts
- * up against the phase's soft budget and turns amber when it runs over, and the candidate
- * moves on by writing the next phase's draft. The server derives the phase from which drafts
- * exist, which is what makes the probe ceiling unmoveable by anything the candidate types
- * into the chat box.
+ * The phase strip is guidance, not a gate. Published descriptions agree on the five phases
+ * and their order but not on the minute allocations, so the timer counts up against the
+ * phase's soft budget and turns amber when it runs over. The candidate moves on by writing
+ * the next phase's draft; the server derives the phase from the drafts that exist, so the
+ * probe ceiling is unmoveable by anything typed into the chat box.
  */
 
 const PHASES: Array<{ id: DesignPhase; label: string; minutes: number; hint: string }> = [
@@ -85,9 +83,9 @@ export function DesignView({
   /**
    * The view's two modes.
    *
-   * The concept library is a second mode of this view rather than a nav entry of its own: it is
-   * the reference material for the round, so it belongs beside the round, and a candidate who
-   * has just been told their trade-off reasoning was weak should land in it without hunting.
+   * The concept library is a second mode of this view, not a nav entry of its own: it is the
+   * reference material for the round, so it belongs beside the round, and a candidate who has
+   * just been told their trade-off reasoning was weak should land in it without hunting.
    */
   const [mode, setMode] = useState<"rounds" | "concepts">("rounds");
   const [groups, setGroups] = useState<DesignConceptGroups | null>(null);
@@ -107,8 +105,8 @@ export function DesignView({
   /**
    * A once-per-second tick, so the elapsed counters actually advance.
    *
-   * Wall-clock delta rather than an incrementing counter, matching `Stopwatch`: a throttled
-   * background tab must not make the phase clock drift behind real time.
+   * Wall-clock delta, matching `Stopwatch`: a throttled background tab must not make the phase
+   * clock drift behind real time.
    */
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -119,18 +117,17 @@ export function DesignView({
   /**
    * When the current phase began, for the per-phase guidance clock.
    *
-   * Reset on an actual phase CHANGE rather than derived from the total elapsed time. Deriving
-   * it by subtracting the earlier phases' nominal budgets would clamp the clock to zero for
-   * anyone who wrote the requirements in less than five minutes — which is most people, and
-   * exactly the candidate the guidance is for.
+   * Reset on an actual phase change. Deriving it by subtracting the earlier phases' nominal
+   * budgets would clamp the clock to zero for anyone who wrote the requirements in less than
+   * five minutes, which is most people and the candidate the guidance is for.
    */
   const [phaseStartedAt, setPhaseStartedAt] = useState(() => Date.now());
 
   /**
    * The slug the pending target already opened.
    *
-   * A ref rather than state because it exists only to stop the bridge firing twice for the same
-   * slug, and re-rendering to record that would be a render for a bookkeeping detail.
+   * A ref, not state, because it exists only to stop the bridge firing twice for the same slug
+   * and re-rendering to record that would be a render for a bookkeeping detail.
    */
   const bridged = useRef<string | null>(null);
 
@@ -142,9 +139,8 @@ export function DesignView({
    * never read back. It runs after the prompt list so the round has a title to render against.
    *
    * A pending target from a due row is started at the end, and only when the resume found no
-   * open round — an unfinished round is the one thing a navigation must not throw away. It is
-   * sequenced inside this effect rather than a second one because two effects on mount would
-   * race, and the slug could overwrite the resumed round or start a second session.
+   * open round. It is sequenced inside this effect because two effects on mount would race,
+   * and the slug could overwrite the resumed round or start a second session.
    */
   useEffect(() => {
     void (async () => {
@@ -178,10 +174,10 @@ export function DesignView({
   /**
    * Put a server session into the view.
    *
-   * The transcript is rebuilt from the stored entries rather than being kept only in React
-   * state, so a restored round shows the conversation it actually had — including the fact
-   * that a leak was refused, which is the most useful thing the transcript records. The sketch
-   * is restored the same way, as shapes rather than a bitmap, so it is still editable.
+   * The transcript is rebuilt from the stored entries, not kept only in React state, so a
+   * restored round shows the conversation it actually had, including the fact that a leak was
+   * refused, which is the most useful thing the transcript records. The sketch is restored the
+   * same way, as shapes, so it is still editable.
    */
   const hydrate = useCallback((s: DesignSession) => {
     setActiveSlug(s.slug);
@@ -209,8 +205,8 @@ export function DesignView({
             },
       ),
     );
-    // The clock restarts from the server's `started_at`, so the timer reflects the real round
-    // rather than however long ago the page was opened.
+    // The clock restarts from the server's `started_at`, so the timer reflects the real round,
+    // not however long ago the page was opened.
     setStartedAt(new Date(s.startedAt).getTime());
     setScores(null);
     setSketch(s.sketch);
@@ -219,10 +215,9 @@ export function DesignView({
   /**
    * Start a fresh round.
    *
-   * A new session per selection rather than resuming a previous one: a design round is a
-   * timed exercise, and resuming one from three days ago would grade a transcript the
-   * candidate no longer remembers writing. Past rounds keep their scores in the table; the
-   * exercise starts clean.
+   * A new session per selection: a design round is a timed exercise, and resuming one from
+   * three days ago would grade a transcript the candidate no longer remembers writing. Past
+   * rounds keep their scores in the table; the exercise starts clean.
    */
   const start = useCallback(
     async (slug: string) => {
@@ -246,8 +241,8 @@ export function DesignView({
   /**
    * Load the concept library the first time the Concepts tab is opened.
    *
-   * On first switch rather than on mount: most visits to this view are for a round, and the
-   * library is 61 summaries that would be fetched and thrown away.
+   * On first switch, not on mount: most visits to this view are for a round, and the library
+   * is 61 summaries that would be fetched and thrown away.
    */
   useEffect(() => {
     if (mode !== "concepts" || groups) return;
@@ -278,7 +273,7 @@ export function DesignView({
    * Switch to the library on a concept.
    *
    * Used by the result panel's "Worth reading" links and by the prompt chips inside a concept,
-   * so both are the same in-component mode switch rather than a navigation.
+   * so both are the same in-component mode switch, not a navigation.
    */
   const openConcept = useCallback((slug: string) => {
     setMode("concepts");
@@ -298,7 +293,7 @@ export function DesignView({
     async (phase: DesignPhase, text: string) => {
       if (!session) return;
       // The local draft map is updated FIRST, because the phase is derived from it below and
-      // `session.drafts` is the server's copy from before this save — reading that would make
+      // `session.drafts` is the server's copy from before this save. Reading that would make
       // the phase strip lag one edit behind the text the candidate just wrote.
       const merged = { ...drafts, [phase]: text };
       setDrafts(merged);
@@ -309,7 +304,7 @@ export function DesignView({
           body: JSON.stringify({ phase, text }),
         });
         // The server derives the phase from the drafts too, but this mirrors it locally so the
-        // strip updates on blur rather than on the next round trip.
+        // strip updates on blur, not on the next round trip.
         setSession((s) => (s ? { ...s, phase: nextPhaseFrom(merged), drafts: merged } : s));
       } catch (e) {
         setError(String(e));
@@ -321,9 +316,8 @@ export function DesignView({
   /**
    * Persist the sketch as shapes.
    *
-   * The parent owns the list, so this both stores it locally and writes it through. Committed once
-   * per settled gesture rather than per pixel, which is what keeps a drag from being one request
-   * per pointer-move.
+   * The parent owns the list, so this both stores it locally and writes it through. Committed
+   * once per settled gesture, which keeps a drag from being one request per pointer-move.
    */
   const onSketchChange = useCallback(
     (shapes: SketchShape[]) => {
@@ -378,8 +372,8 @@ export function DesignView({
     scroller.current?.scrollTo({ top: scroller.current.scrollHeight });
   }, [entries]);
 
-  // Restart the per-phase guidance clock whenever the phase actually changes — including on
-  // resume, where the round is restored into whatever phase its drafts put it in.
+  // Restart the per-phase guidance clock whenever the phase changes, including on resume,
+  // where the round is restored into whatever phase its drafts put it in.
   const phaseId = session?.phase ?? "requirements";
   useEffect(() => {
     setPhaseStartedAt(Date.now());
@@ -611,9 +605,9 @@ export function DesignView({
 /**
  * The concept library: groups on the left, the selected note on the right.
  *
- * Laid out on the same `.workspace` grid as the round, because it is the same reading posture —
- * browse on the left, read on the right — and a second layout language for one screen would
- * drift from the first.
+ * Laid out on the same `.workspace` grid as the round, because it is the same reading posture
+ * (browse left, read right) and a second layout language for one screen would drift from the
+ * first.
  */
 function ConceptLibrary({
   groups,
@@ -706,10 +700,10 @@ function ConceptLibrary({
 /**
  * Which phase the round is in, given the drafts so far.
  *
- * Mirrors the server's `phaseFromDrafts` rather than asking it: the phase is a pure function of
- * which drafts exist, and a round trip to learn something already derivable would put a network
- * call between a keystroke and the phase strip. The server remains the authority for the
- * ceiling; this only drives the display.
+ * Mirrors the server's `phaseFromDrafts`: the phase is a pure function of which drafts exist,
+ * and a round trip to learn something already derivable would put a network call between a
+ * keystroke and the phase strip. The server remains the authority for the ceiling; this only
+ * drives the display.
  */
 function nextPhaseFrom(drafts: Record<string, string>): DesignPhase {
   for (const p of ["requirements", "estimation", "highlevel", "deepdive"] as DesignPhase[]) {
@@ -738,9 +732,9 @@ function ResultsPanel({
   /**
    * The concepts covering the round's weakest dimension.
    *
-   * Fetched here rather than threaded down from the parent, because the result panel can be
-   * reached without ever opening the library. Cached per mount is not worth it: a round is
-   * finished at most a few times a session.
+   * Fetched here, not threaded down from the parent, because the result panel can be reached
+   * without ever opening the library. Cached per mount is not worth it: a round is finished at
+   * most a few times a session.
    */
   const [reading, setReading] = useState<DesignConceptSummary[]>([]);
 

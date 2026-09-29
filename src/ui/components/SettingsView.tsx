@@ -31,7 +31,7 @@ const KEEP_LABEL: Record<string, string> = {
 };
 
 /**
- * Settings — the API key, and the reset.
+ * Settings: the API key, and the reset.
  *
  * Both live here because both are the kind of thing you look for once and then stop
  * thinking about. The key field is a password input so it is not shoulder-readable while
@@ -156,9 +156,9 @@ export function SettingsView({ onReset }: { onReset: () => void }) {
 /**
  * Reset, behind a typed confirmation.
  *
- * The typed word rather than a checkbox is deliberate: this deletes every attempt, which is
- * the one irreversible action in the app, and a checkbox is one misclick away from being
- * checked. The preview is shown first so the scope is visible before, not after.
+ * Confirmation is a typed word: this deletes every attempt, the one irreversible action in the
+ * app, and a checkbox is one misclick away from being checked. The preview is shown first so
+ * the scope is visible before, not after.
  */
 function ResetPanel({ onReset }: { onReset: () => void }) {
   const [preview, setPreview] = useState<ResetPreview | null>(null);

@@ -58,9 +58,9 @@ const LEVEL_LABEL: Record<number, string> = {
 /**
  * The hint panel.
  *
- * The ceiling is shown before the student asks anything, with the reason — so the
- * constraint reads as a deliberate rule rather than the tool being obtuse. The unlock is
- * present but framed honestly: it costs you the review grade.
+ * The ceiling is shown before the student asks anything, with the reason, so the constraint
+ * reads as a rule the tool states openly. The unlock is present but framed honestly: it costs
+ * you the review grade.
  */
 export function TutorPanel({
   slug,
@@ -97,7 +97,7 @@ export function TutorPanel({
     void refreshStatus();
   }, [slug, refreshStatus]);
 
-  // The ceiling is derived from the attempt log, so a run changes it — and `lastRun` is a
+  // The ceiling is derived from the attempt log, so a run changes it, and `lastRun` is a
   // fresh object on every run, which makes it the right trigger. Without this the chip kept
   // showing the ceiling from page load, so a student who had just attempted the problem saw
   // H0 and a hint they were now entitled to looked unavailable.

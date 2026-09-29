@@ -42,12 +42,12 @@ function band(elo: number): { label: string; className: string } {
 }
 
 /**
- * The mastery graticule — the one element this interface should be remembered by.
+ * The mastery graticule.
  *
- * A bare Elo number means nothing without a reference. Plotting it as a position on a
- * fixed 1000-1600 span makes "weak" and "strong" legible at a glance, and the tick marks
- * give the eye something to compare against down the column. Instruments solve this
- * problem with a scale; so does this.
+ * A bare Elo number means nothing without a reference. Plotting it as a position on a fixed
+ * 1000-1600 span makes "weak" and "strong" legible at a glance, and the tick marks give the
+ * eye something to compare against down the column. Instruments solve this problem with a
+ * scale; so does this.
  */
 function Graticule({ elo }: { elo: number }) {
   const clamped = Math.max(SCALE_MIN, Math.min(SCALE_MAX, elo));
@@ -73,8 +73,8 @@ function Graticule({ elo }: { elo: number }) {
  * Mastery + weakness view.
  *
  * Ordered weakest-first on purpose: the useful question is "what should I work on", not
- * "what am I good at". Hint dependence is shown alongside because a pattern can look
- * solved while every solve needed help.
+ * "what am I good at". Hint dependence is shown alongside, since a pattern can look solved
+ * while every solve needed help.
  */
 export function MasteryView() {
   const [data, setData] = useState<MasteryResponse | null>(null);

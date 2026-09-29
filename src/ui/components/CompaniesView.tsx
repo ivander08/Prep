@@ -19,7 +19,7 @@ type CompanyProblem = {
  *
  * Tag data comes from a community mirror, not LeetCode (whose `companyTags` field returns
  * null without an authenticated premium session). It can be stale, and the frequency score
- * is whatever the mirror recorded — useful for ordering, not a promise about any specific
+ * is whatever the mirror recorded: useful for ordering, no promise about any specific
  * company's current loop.
  */
 export function CompaniesView({ onOpen }: { onOpen: (slug: string) => void }) {

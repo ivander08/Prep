@@ -3,14 +3,14 @@ import { useEffect, type ReactNode } from "react";
 /**
  * A modal panel.
  *
- * Replaces the two native dialogs the app used — `window.prompt` for a sketch label and `confirm`
- * for the tutor's solution unlock. Native dialogs are unstyled, block the event loop, and cannot be
- * reached from a test or an embedded frame; and `prompt` is suppressed outright in some contexts, so
- * a label would silently not be created.
+ * Replaces the two native dialogs the app used: `window.prompt` for a sketch label and
+ * `confirm` for the tutor's solution unlock. Native dialogs are unstyled, block the event
+ * loop, and cannot be reached from a test or an embedded frame; `prompt` is suppressed
+ * outright in some contexts, so no label is created and nothing says so.
  *
- * The panel owns Escape, the backdrop and the ARIA attributes. It does NOT trap Tab: the app has no
- * focus trap anywhere else, and the two call sites are a single input and a single button, so a trap
- * would be more machinery than the surface it guards.
+ * The panel owns Escape, the backdrop and the ARIA attributes. It does NOT trap Tab: the app
+ * has no focus trap anywhere else, and the two call sites are a single input and a single
+ * button, so a trap would be more machinery than the surface it guards.
  */
 export function Dialog({
   title,

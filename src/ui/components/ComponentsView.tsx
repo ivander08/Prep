@@ -22,17 +22,14 @@ type ModulesResponse = {
 };
 
 /**
- * The Build track — executable system-design components.
- *
+ * The Build track: executable system-design components.
  * `FundamentalsView` with the nouns changed: module-grouped list on the left, editor and run
  * panel on the right, the same `AssistPicker`, `Stopwatch`, `CaseTabs` and exemplar gate. The
- * two views are the same activity — read a spec, write code, run it, get a verdict — so they
- * share a layout language rather than each growing their own.
- *
- * What is genuinely different is the SHAPE of the exercise: a component is stateful, so the
- * signature takes an operation script and returns the output sequence. That is documented in
- * `opFormat` and shown above the editor, because the encoding is the interface.
- *
+ * two views are the same activity (read a spec, write code, run it, get a verdict), so they
+ * share a layout language.
+ * The exercise differs in shape: a component is stateful, so the signature takes an operation
+ * script and returns the output sequence. `opFormat` documents that and it is shown above the
+ * editor, because the encoding is the interface.
  * The exemplar is never shown before a pass, for the same reason it is not in the concept
  * track: reading it first is how a component feels learned without being learned.
  */
@@ -46,9 +43,9 @@ export function ComponentsView({
 }) {
   const [lang, setLang] = useState(() => {
     // The bridge slug carries its language prefix (`python3/token-bucket`), so arriving from a
-    // finished design round selects that language rather than whichever one was last used —
-    // otherwise the slug would not match the loaded list and the view would silently fall back
-    // to the first component.
+    // finished design round selects that language instead of whichever one was last used.
+    // Otherwise the slug would not match the loaded list and the view would fall back to the
+    // first component with nothing to say so.
     const prefix = initialSlug?.split("/")[0];
     return prefix && prefix.length > 0 ? prefix : "python3";
   });
@@ -130,8 +127,8 @@ export function ComponentsView({
       });
       setRun(r);
       if (r.accepted) {
-        // The pass marker comes from the server, so re-read rather than guessing locally —
-        // the same list is the record of what has been built.
+        // The pass marker comes from the server, so re-read instead of guessing locally: the
+        // same list is the record of what has been built.
         await loadList(lang);
         onSolved();
       }

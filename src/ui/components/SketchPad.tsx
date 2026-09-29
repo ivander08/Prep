@@ -3,20 +3,14 @@ import { type SketchShape } from "../api";
 import { Dialog } from "./Dialog";
 
 /**
- * A minimal diagram pad: rectangles, arrows, and labels on an SVG.
+ * A minimal diagram pad: rectangles, arrows and labels on an SVG.
  *
- * No library. A diagramming dependency would be the largest thing in the app by an order of
+ * No library: a diagramming dependency would be the largest thing in the app by an order of
  * magnitude, and the research documents 2026 rounds at Amazon and Netflix that ran with no
- * diagram tool at all — so this is a convenience, not a requirement. What it has to do is
- * survive the one thing an interviewer actually looks at a diagram for: naming the boxes and
- * showing which one talks to which.
- *
- * Three tools, three gestures, all on pointer events so a stylus and a trackpad behave the
- * same:
- *   - rectangle: drag from corner to corner
- *   - arrow: drag from tail to head with Shift held
- *   - label: click to place, then type into the dialog
- *
+ * diagram tool at all, so this is a convenience. It has to support naming the boxes and showing
+ * which one talks to which. Three tools, three gestures, all on pointer events so a stylus and a
+ * trackpad behave the same: rectangle is a drag from corner to corner, arrow is a drag from tail
+ * to head with Shift held, label is a click to place followed by typing into the dialog.
  * Controlled: the shape list is owned by the parent, which persists it, so a reloaded round
  * shows the same diagram and it stays editable.
  */
@@ -30,15 +24,15 @@ export function SketchPad({
 }: {
   /** The committed shapes, owned by the parent so they survive a reload. */
   value: SketchShape[];
-  /** Fires once per settled gesture — pointer-up, undo, clear, label confirm. */
+  /** Fires once per settled gesture: pointer-up, undo, clear, label confirm. */
   onChange: (shapes: SketchShape[]) => void;
 }): React.JSX.Element {
   /**
    * The in-progress shape.
    *
-   * Deliberately NOT a `SketchShape`: a label is never dragged, so the drag state is only ever a
-   * rect or an arrow, and typing it that way makes the pointer-up branch exhaustive instead
-   * of requiring a label case that cannot happen.
+   * NOT a `SketchShape`: a label is never dragged, so the drag state is only ever a rect or an
+   * arrow, and typing it that way makes the pointer-up branch exhaustive instead of requiring a
+   * label case that cannot happen.
    */
   const [drag, setDrag] = useState<
     | { kind: "rect"; x: number; y: number; w: number; h: number }
@@ -53,17 +47,14 @@ export function SketchPad({
   /**
    * Screen coordinates to SVG user-space coordinates.
    *
-   * Through `getScreenCTM()` rather than by dividing by the element's own width and height. The
-   * `<svg>` is `width="100%"` over a fixed 640×300 viewBox with the default `preserveAspectRatio`
-   * (`xMidYMid meet`), so the viewBox is scaled uniformly and then CENTRED inside the element —
-   * letterboxed. Dividing each axis by the element's ratio ignores both the uniform scale and the
-   * centring offset, so a drag landed offset by the whole letterbox in whichever axis had slack:
-   * measured 63px horizontally in a 750px-wide pane, 56px vertically in a 400px-wide one. The CTM
-   * is the transform the browser actually renders with, so it is exact by construction and stays
-   * exact if the viewBox, the aspect ratio or a CSS transform ever changes.
-   *
-   * Null when the element is not rendered, which cannot happen for a pointer event on it; callers
-   * return early rather than guessing a position.
+   * Through `getScreenCTM()`, not by dividing by the element's own width and height. The `<svg>` is
+   * `width="100%"` over a fixed 640×300 viewBox with the default `preserveAspectRatio`
+   * (`xMidYMid meet`), so the viewBox is scaled uniformly and then CENTRED inside the element
+   * (letterboxed). Dividing each axis by the element's ratio ignores both the uniform scale and
+   * the centring offset, so a drag landed offset by the whole letterbox in whichever axis had
+   * slack: measured 63px horizontally in a 750px-wide pane, 56px vertically in a 400px-wide one.
+   * The CTM is the transform the browser renders with, so it stays correct if the viewBox or the
+   * aspect ratio changes. Null when the element is not rendered; callers return early.
    */
   const point = (e: React.PointerEvent<SVGSVGElement>): { x: number; y: number } | null => {
     const ctm = e.currentTarget.getScreenCTM();
@@ -82,8 +73,8 @@ export function SketchPad({
       return;
     }
     // A click with no drag is a label placement, which the pointer-up handler turns into a
-    // dialog. Distinguishing click from drag by distance rather than by time keeps a slow
-    // deliberate drag from being mistaken for a click.
+    // dialog. Distinguishing click from drag by distance, not by time, keeps a slow deliberate
+    // drag from being mistaken for a click.
     setDrag({ kind: "rect", x: p.x, y: p.y, w: 0, h: 0 });
   };
 

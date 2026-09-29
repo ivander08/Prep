@@ -39,17 +39,13 @@ const LISTS = ["blind75", "neetcode150", "neetcode250", "leetcode75", "topInterv
  * The sidebar's sections, in order.
  *
  * A flat list of eleven entries put `Fundamentals`, `Design` and `Build` between `Roadmap` and
- * `Problems` with nothing to say they belong together, and left `Models` and `Settings` —
- * configuration — indistinguishable from the things you actually practise. The grouping is the
- * fix: each section answers a different question.
+ * `Problems` with nothing to say they belong together, and left `Models` and `Settings` (config)
+ * indistinguishable from the things you practise. The grouping is the fix: each section answers a
+ * different question, and `Overview` leads the first one so there is no unlabelled orphan.
  *
- * `Overview` leads the first section rather than sitting outside it, so there is no unlabelled
- * orphan at the top of the list.
- *
- * There is deliberately NO `Problems` entry. It used to exist and pointed at the same `list`
- * view as the list buttons below it, with `activeList` unchanged — so it rendered exactly the
- * active list under a generic heading, which is the single most confusing thing about the old
- * layout. The lists are the entry points.
+ * There is no `Problems` entry: it pointed at the same `list` view as the list buttons below it,
+ * with `activeList` unchanged, so it rendered the active list under a generic heading. The lists
+ * are the entry points.
  */
 const NAV: Array<{ label: string; items: Array<readonly [View, string]> }> = [
   {
@@ -119,9 +115,8 @@ export function App() {
    * Whether the navigation drawer is open, on screens too narrow for the fixed sidebar.
    *
    * The sidebar is 216px of a phone's 390px, which left 174px for the app and pushed every
-   * view into horizontal overflow. Below 860px it becomes an off-canvas drawer instead. The
-   * state lives here rather than in the sidebar because the backdrop and the nav buttons
-   * both need to close it.
+   * view into horizontal overflow. Below 860px it becomes an off-canvas drawer. The state
+   * lives here because the backdrop and the nav buttons both need to close it.
    */
   const [navOpen, setNavOpen] = useState(false);
   /** The component the Build view should open on arrival, set by the Design bridge. */
@@ -137,20 +132,14 @@ export function App() {
   /**
    * Open a track on a specific item.
    *
-   * Takes the whole item rather than a kind and a ref, because a `pattern` row has a second
-   * destination to consider and that decision belongs in one place. With a `(kind, ref)`
-   * signature both call sites (Review and Overview) would have to repeat the pattern branch.
+   * Takes the whole item, not a `(kind, ref)` pair: a `pattern` row has a second destination to
+   * consider, and both call sites (Review and Overview) would repeat that branch.
    *
-   * A `pattern` row carries the problem to re-solve in `problemSlug`, and re-solving that
-   * problem IS the pattern review — the attempt's grade drives the pattern card through
-   * `/api/review/patterns/:pattern/grade`. So it opens the problem workspace directly, which is
-   * what the old "Patterns due" rows did. A pattern with nothing passed has `problemSlug: null`
-   * and falls back to the Roadmap, where its problems and reference card live; no highlight is
-   * added there, because every pattern's problem list is expanded by default already.
-   *
-   * DSA goes through the existing `openSlug` workspace. The other kinds set a pending target and
-   * switch view; each view reads it on arrival the way `ComponentsView` already reads its
-   * `initialSlug` bridge from a finished design round.
+   * A `pattern` row carries the problem to re-solve in `problemSlug`, and re-solving it IS the
+   * pattern review: the attempt's grade drives the pattern card through
+   * `/api/review/patterns/:pattern/grade`. Nothing passed means `problemSlug: null`, which falls
+   * back to the Roadmap. DSA goes through `openSlug`; other kinds set a pending target and switch
+   * view, and each view reads it on arrival the way `ComponentsView` reads its `initialSlug`.
    */
   const onOpenTrack = useCallback((item: DueTrackItem) => {
     if (item.kind === "pattern" && item.problemSlug) {
@@ -187,7 +176,7 @@ export function App() {
   /**
    * The streak and the milestones.
    *
-   * Fetched together because they answer the same question — what has been earned — and because
+   * Fetched together because they answer the same question, what has been earned, and because
    * `/api/milestones` evaluates on read, so it must be re-read after any graded event for a new
    * award to appear. Nothing here is self-reported: both are derived from the attempt log.
    */
@@ -233,7 +222,7 @@ export function App() {
   return (
     <div className="layout">
       {/* Shown only below the drawer breakpoint. `display: none` above it, so on desktop the
-          grid still has exactly the two children it expects. */}
+          grid still has the two children it expects. */}
       <header className="topbar">
         <button
           className="menu-btn"
@@ -271,7 +260,7 @@ export function App() {
                     className={view === id ? "active" : ""}
                     onClick={() => {
                       // An explicit nav click clears the pending targets, so Build opens on the
-                      // default rather than re-opening whatever round was last finished, and a
+                      // default instead of re-opening whatever round was last finished, and a
                       // track does not re-open the item a due row selected.
                       if (id === "components") setComponentSlug(null);
                       setTrackTarget(null);
@@ -388,10 +377,9 @@ export function App() {
 /**
  * The heatmap's intensity bucket for a day's graded-event count.
  *
- * Absolute thresholds rather than a quantile of the window: a quantile would rescale the whole
- * calendar every time one day changed, so the same day's colour would drift as unrelated days
- * were added. These bands are stable — 1, 2, 3-4, 5+ — which is what makes two screenshots
- * comparable.
+ * Absolute thresholds, not a quantile of the window: a quantile would rescale the whole calendar
+ * every time one day changed, so the same day's colour would drift as unrelated days were added.
+ * These bands are stable (1, 2, 3-4, 5+), which is what makes two screenshots comparable.
  */
 function level(count: number): number {
   if (count === 0) return 0;
@@ -458,7 +446,7 @@ function Overview({
 
       {/*
         The activity calendar. Derived from the same `last_review` rows as the streak itself, so
-        a day is lit because a card was actually graded on it — there is nothing to check off.
+        a day is lit because a card was graded on it. There is nothing to check off.
         Intensity comes from the event count, so a heavy day is visibly heavier.
       */}
       {streak && streak.activeDays > 0 ? (
@@ -540,10 +528,10 @@ function Overview({
             <span className="title">
               <span className={m.earnedAt ? undefined : "muted"}>{m.title}</span>
               {/*
-                The requirement stays on an earned row rather than being replaced by the date.
-                It is the only place the milestone's threshold is written down, so dropping it
-                once earned made the list unreadable after the fact — you could see that
-                something was earned but not what it took.
+                The requirement stays on an earned row, and is not replaced by the date. It is
+                the only place the milestone's threshold is written down, so dropping it once
+                earned made the list unreadable after the fact: you could see that something
+                was earned but not what it took.
               */}
               <span className="muted small sub">{m.requirement}</span>
             </span>
@@ -589,9 +577,9 @@ function Review({
           {due.map((d) => (
             <Row key={`${d.kind}:${d.ref}`} onClick={() => onOpenTrack(d)}>
               {/*
-                The first cell holds the track label rather than a number, because which track a
-                row belongs to is the one thing a mixed list must say per row. The Overview's
-                milestone rows already use this column for a non-numeric marker.
+                The first cell holds the track label, not a number. Which track a row belongs to
+                is the one thing a mixed list must say per row. The Overview's milestone rows
+                already use this column for a non-numeric marker.
               */}
               <span className="qid mono muted small">{DUE_TRACK_LABEL[d.kind]}</span>
               <span className="title">{d.title}</span>
@@ -623,8 +611,8 @@ function ProblemView({ slug, onBack }: { slug: string; onBack: () => void }) {
   const [hintsUsed, setHintsUsed] = useState(0);
   const [language, setLanguage] = useState("python3");
   /**
-   * Default "words": it completes identifiers you already wrote, which removes retyping
-   * without handing over API recall — the part interview practice is meant to test.
+   * Default "words": it completes identifiers you already wrote, which removes retyping without
+   * handing over API recall, the part interview practice is meant to test.
    */
   const [assist, setAssist] = useState<AssistLevel>("words");
   const [showTimer, setShowTimer] = useStopwatchVisible();
@@ -693,13 +681,13 @@ function ProblemView({ slug, onBack }: { slug: string; onBack: () => void }) {
   /**
    * Identity-stable view of the last run, for the tutor panel.
    *
-   * The panel refreshes its ceiling when `lastRun` changes identity, so this must change once
-   * per RUN — not once per render, and not on every keystroke. Keying it on `code` as well
-   * would fire a status request per character typed.
+   * The panel refreshes its ceiling when `lastRun` changes identity, so this must change once per
+   * RUN, not once per render and not on every keystroke. Keying it on `code` as well would fire a
+   * status request per character typed.
    *
-   * The consequence is that "Review my code" reviews the code as it was when it was run,
-   * rather than the current buffer. That is the more honest semantic: the review comments on
-   * what produced the test result it is given alongside.
+   * The consequence is that "Review my code" reviews the code as it was when it was run, not the
+   * current buffer. That is the more honest semantic: the review comments on what produced the
+   * test result it is given alongside.
    */
   const lastRunForTutor = useMemo(
     () =>
@@ -744,7 +732,7 @@ function ProblemView({ slug, onBack }: { slug: string; onBack: () => void }) {
       setAttempt(a);
 
       // Schedule the pattern card too, from the same attempt's grade. Failure here must not
-      // fail the run — the attempt is already recorded, and a pattern card is a secondary
+      // fail the run: the attempt is already recorded, and a pattern card is a secondary
       // artifact. Guarded on `a.nextDue`: an attempt that scheduled nothing (nothing passed)
       // is not evidence for the pattern either.
       const pattern = problem.pattern;
@@ -949,11 +937,10 @@ function ProblemView({ slug, onBack }: { slug: string; onBack: () => void }) {
 /**
  * The statement panel for a LeetCode Premium problem.
  *
- * Premium problems return `content: null` unauthenticated, so there is no fetch that
- * recovers the prose. What IS returned is `exampleTestcases` and `metaData`, and 375
- * Premium problems already have imported suites — so the grader works, and only the
- * statement is missing. The panel says exactly that rather than reporting an error, links
- * out, and offers to store a pasted copy.
+ * Premium problems return `content: null` unauthenticated, so there is no fetch that recovers the
+ * prose. What is returned is `exampleTestcases` and `metaData`, and 375 Premium problems already
+ * have imported suites, so the grader works and only the statement is missing. The panel says
+ * that, links out, and offers to store a pasted copy.
  */
 function PremiumStatement({ slug, onSaved }: { slug: string; onSaved: () => void }) {
   const [draft, setDraft] = useState("");

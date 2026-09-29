@@ -15,16 +15,15 @@ type ModulesResponse = {
 };
 
 /**
- * Language fundamentals — the pre-DSA track.
+ * Language fundamentals: the pre-DSA track.
  *
- * Laid out like the problem workspace (list on the left, work on the right) rather than as a
- * course page, because it is the same activity: read the spec, write code, run it, get a
- * verdict. Reusing `.workspace` and `.table` means one layout language across the app instead
- * of a second set of styles that drift.
+ * Laid out like the problem workspace (list on the left, work on the right), because it is the
+ * same activity: read the spec, write code, run it, get a verdict. Reusing `.workspace` and
+ * `.table` means one layout language across the app.
  *
- * The exemplar is never shown before a pass. It is in the API response because the same
- * payload seeds the editor, and hiding it client-side would be theatre — but revealing it
- * defeats the point of the exercise, so the UI offers it only after `accepted`.
+ * The exemplar is never shown before a pass. It is in the API response because the same payload
+ * seeds the editor, so hiding it client-side would be theatre, but revealing it defeats the
+ * exercise: the UI offers it only after `accepted`.
  */
 export function FundamentalsView({
   initialSlug,
@@ -36,9 +35,9 @@ export function FundamentalsView({
 }) {
   const [lang, setLang] = useState(() => {
     // The slug carries its language prefix (`python3/dynamic-array`), so arriving from a due
-    // row selects that language rather than whichever one was last used — otherwise the slug
-    // would not match the loaded list and the view would silently fall back to the first
-    // concept, making the deep-link appear to do nothing.
+    // row selects that language, not whichever one was last used: otherwise the slug would not
+    // match the loaded list and the view would fall back to the first concept with no error,
+    // making the deep-link appear to do nothing.
     const prefix = initialSlug?.split("/")[0];
     return prefix && prefix.length > 0 ? prefix : "python3";
   });
@@ -121,8 +120,8 @@ export function FundamentalsView({
       });
       setRun(r);
       if (r.accepted) {
-        // The pass marker in the list comes from the server, so re-read rather than
-        // guessing locally — the same list is the record of what has been learned.
+        // The pass marker in the list comes from the server, so re-read instead of guessing
+        // locally: the same list is the record of what has been learned.
         await loadList(lang);
         onSolved();
       }

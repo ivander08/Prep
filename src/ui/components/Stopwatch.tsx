@@ -5,8 +5,8 @@ const STORAGE_KEY = "prep.stopwatch.visible";
 /**
  * Format elapsed seconds as a fixed-width clock.
  *
- * Zero-padded to `mm:ss` so the digits do not shift horizontally as the value changes —
- * the same reason every other numeral in this UI is monospaced with tabular figures. Hours
+ * Zero-padded to `mm:ss` so the digits do not shift horizontally as the value changes, the
+ * same reason every other numeral in this UI is monospaced with tabular figures. Hours
  * appear only once they exist, so a normal attempt is never shown as `00:04:37`.
  */
 export function formatElapsed(totalSeconds: number): string {
@@ -27,7 +27,7 @@ export function isOverLimit(elapsedSeconds: number, limitSeconds: number): boole
 /**
  * Whether the stopwatch is shown, persisted in localStorage.
  *
- * localStorage rather than the `meta` table: this is a per-browser display preference, not
+ * localStorage, not the `meta` table: this is a per-browser display preference and not
  * learning state, so it should not be inside the blast radius of a progress reset, and it
  * does not justify a round trip.
  */
@@ -74,8 +74,8 @@ export function Stopwatch({
     return () => clearInterval(id);
   }, []);
 
-  // Wall-clock delta rather than a tick counter, so a throttled background tab cannot make
-  // the clock drift behind real time.
+  // Wall-clock delta, not a tick counter, so a throttled background tab cannot make the
+  // clock drift behind real time.
   const elapsed = Math.max(0, (now - startedAt) / 1000);
   const over = isOverLimit(elapsed, limitSeconds);
 

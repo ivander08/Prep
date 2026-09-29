@@ -3,13 +3,13 @@ import { useMemo } from "react";
 /**
  * Minimal markdown renderer: paragraphs, lists, fenced code, inline code, bold/italic.
  *
- * Hand-rolled rather than pulling a dependency — the subset used by LeetCode statements and
- * concept prose is small and fixed, and a full markdown parser would be the largest
- * dependency in the app to render `**bold**` and a fenced block.
+ * Hand-rolled, not a dependency: the subset used by LeetCode statements and concept prose is
+ * small and fixed, and a full markdown parser would be the largest dependency in the app to
+ * render `**bold**` and a fenced block.
  *
  * Shared by the problem statement, the official hints, and the fundamentals track. It was
- * private to App.tsx until the concepts view needed it, at which point a second renderer
- * would have been the wrong answer.
+ * private to App.tsx until the concepts view needed it, at which point a second renderer would
+ * have been the wrong answer.
  */
 export function Markdown({ md }: { md: string }) {
   const blocks = useMemo(() => {

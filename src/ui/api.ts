@@ -92,9 +92,9 @@ export type DueTrackItem = {
 };
 
 /**
- * The badge and the destination view for each track. One table rather than a switch at each
- * use site: the row renderer needs the label and the click handler needs the view, and they
- * must agree about which track is which.
+ * The badge and the destination view for each track. One table, not a switch at each use
+ * site: the row renderer needs the label and the click handler needs the view, and they must
+ * agree about which track is which.
  */
 export const DUE_TRACK_LABEL: Record<DueTrack, string> = {
   dsa: "Problem",
@@ -182,7 +182,7 @@ export type ComponentDetail = {
   title: string;
   conceptMd: string;
   promptMd: string;
-  /** The exact `ops` encoding the starter parses — the interface, not a hint. */
+  /** The `ops` encoding the starter parses: the interface, not a hint. */
   opFormat: string;
   starter: string;
   solution: string;
@@ -271,7 +271,7 @@ export type RubricDimension =
 /**
  * A dimension's score with the evidence that earned it.
  *
- * `source` is the load-bearing field: `signal` means the mechanical check set this number
+ * `source` decides how to read the number: `signal` means the mechanical check set it,
  * because the model produced no quote that could be found in the candidate's own text.
  */
 export type DesignScore = {
@@ -310,8 +310,8 @@ export type DesignScores = {
   /**
    * The Build-track component that implements part of this design, or null.
    *
-   * Sent with the finished round rather than with the prompt list, because naming the
-   * component before the round would hint at the design.
+   * Sent with the finished round, not with the prompt list: naming the component before the
+   * round would hint at the design.
    */
   componentSlug: string | null;
 };
@@ -327,9 +327,9 @@ export const DIMENSION_LABEL: Record<RubricDimension, string> = {
 /**
  * Probe families (indices into the server's `PROBE_FAMILIES`) that a weak dimension points at.
  *
- * This mapping lives on the client because it answers a UI question — which concept to
- * recommend after a weak round — rather than a server one. `communication` maps to nothing:
- * the library is engineering content, and no concept fixes an unclear explanation.
+ * This mapping lives on the client because it answers a UI question (which concept to
+ * recommend after a weak round), not a server one. `communication` maps to nothing: the
+ * library is engineering content, and no concept fixes an unclear explanation.
  */
 export const DIMENSION_PROBES: Record<RubricDimension, number[]> = {
   problemFraming: [5],
@@ -368,7 +368,7 @@ export type DesignConcept = DesignConceptSummary & {
   prompts: string[];
 };
 
-/** One concept's body, with its probe families named rather than numbered. */
+/** One concept's body, with its probe families named, not numbered. */
 export type DesignConceptDetail = {
   concept: DesignConcept;
   probes: Array<string | null>;
@@ -496,10 +496,9 @@ export type TrackSession = {
 /**
  * An HTTP failure that keeps the status and the parsed body.
  *
- * The body matters: a 422 from `/api/run` is not a failure at all — it means "this problem
- * cannot be graded here", which the workspace renders as an explanation rather than an
- * error banner. Flattening every non-2xx into a bare `Error(message)` threw that
- * distinction away.
+ * The body matters: a 422 from `/api/run` is not a failure at all. It means "this problem
+ * cannot be graded here", which the workspace renders as an explanation, not an error
+ * banner. Flattening every non-2xx into a bare `Error(message)` threw that distinction away.
  */
 export class ApiError extends Error {
   constructor(

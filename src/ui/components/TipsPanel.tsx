@@ -1,14 +1,11 @@
 /**
- * The technique panel.
+ * The technique panel: the handbook's pattern-independent advice, what to do in the round
+ * regardless of which algorithm the problem wants. Fixed prose with no data behind it, so it is
+ * a constant in a component and never a fetch.
  *
- * The handbook's pattern-independent advice: what to do in the round regardless of which
- * algorithm the problem wants. It is fixed prose with no data behind it, so it is a constant in
- * a component and never a fetch.
- *
- * Mounted on the Overview rather than inside a problem. It is general advice, not something
- * specific to the problem on screen — and a panel repeated above every problem is both noise on
- * the page and easy to stop seeing, which is the opposite of what reference material is for.
- * The Overview is where you land before starting work, which is when this is worth reading.
+ * Mounted on the Overview, not inside a problem. It is general advice, and a panel repeated above
+ * every problem is noise that is easy to stop seeing. The Overview is where you land before
+ * starting work, which is when this is worth reading.
  *
  * Closed by default. It is reference, not a nag.
  */
@@ -51,12 +48,11 @@ export const INTERVIEW_TIPS: Array<{ title: string; body: string }> = [
  * The interview technique list.
  *
  * Always expanded. It was a toggle, which was wrong for reference material: the eight headings
- * are the index — you scan them to find the one you need — and a collapsed list hides exactly
- * the thing that makes it useful. A disclosure also made the page jump under the cursor every
- * time it was opened.
+ * are the index you scan to find the one you need, and a collapsed list hides the thing that
+ * makes it useful. A disclosure also made the page jump under the cursor every time it opened.
  *
- * A heading and a table rather than a button and a table, so it reads as a section of the page
- * like "Milestones" and "Due now" do, instead of as a control that happens to be open.
+ * A heading and a table, not a button and a table, so it reads as a section of the page like
+ * "Milestones" and "Due now" do.
  */
 export function TipsPanel() {
   return (

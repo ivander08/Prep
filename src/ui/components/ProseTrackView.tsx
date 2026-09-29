@@ -15,17 +15,14 @@ import { Row } from "./Row";
 /**
  * A prose track: prompt list on the left, answer on the right.
  *
- * ONE component for both the behavioral and the stack track, because the two differ only in
- * which catalogue and which endpoint they read. The layout, the resume behaviour, the grading
- * display and the empty states are identical; a second copy would be the same 200 lines with
- * the strings changed, and the two would drift the first time one of them was fixed.
+ * One component for both the behavioral and the stack track: they differ only in which catalogue
+ * and which endpoint they read, so a second copy would be the same 200 lines with the strings
+ * changed and the two would drift. It reuses `.workspace` + `.fundamentals-list` + `.pane`, the
+ * same grid every other track uses, so there is one layout language across the app.
  *
- * The layout reuses `.workspace` + `.fundamentals-list` + `.pane` — the same grid every other
- * track uses — so there is one layout language across the app rather than a second set.
- *
- * The answer is a `<textarea>` and not the code editor: this is prose, and the editor's
- * bracket matching, lint gutter and language mode would all be noise around it. It reuses
- * `.design-textarea`, which is already the app's monospace prose field.
+ * The answer is a `<textarea>`, not the code editor: this is prose, and bracket matching, the
+ * lint gutter and the language mode would be noise around it. It reuses `.design-textarea`,
+ * already the app's monospace prose field.
  */
 export function ProseTrackView({
   kind,
@@ -54,8 +51,8 @@ export function ProseTrackView({
   /**
    * The slug the pending target already opened.
    *
-   * A ref rather than state because it exists only to stop the bridge firing twice for the same
-   * slug, and re-rendering to record that would be a render for a bookkeeping detail.
+   * A ref, not state: it exists only to stop the bridge firing twice for the same slug, and
+   * re-rendering to record that would be a render for a bookkeeping detail.
    */
   const bridged = useRef<string | null>(null);
 
@@ -67,9 +64,9 @@ export function ProseTrackView({
    * never read back. It runs after the list so the pane has a prompt to render against.
    *
    * A pending target from a due row is opened at the end, and only when the resume found
-   * nothing — an unfinished attempt is the one thing a navigation must not throw away. It is
-   * sequenced inside this effect rather than a second one because two effects on mount would
-   * race, and the slug could start a session over the resumed one.
+   * nothing: an unfinished attempt is the one thing a navigation must not throw away. It is
+   * sequenced inside this effect, not a second one, because two effects on mount would race and
+   * the slug could start a session over the resumed one.
    */
   useEffect(() => {
     void (async () => {
@@ -102,8 +99,8 @@ export function ProseTrackView({
   /**
    * Put a server session into the view.
    *
-   * The prompt's answer key is fetched alongside the session rather than being threaded in
-   * from the list, because the list deliberately does not carry it — see the endpoint.
+   * The prompt's answer key is fetched alongside the session, not threaded in from the list,
+   * because the list does not carry it. See the endpoint.
    */
   const hydrate = useCallback(
     async (s: TrackSession) => {
@@ -124,9 +121,9 @@ export function ProseTrackView({
   /**
    * Start a fresh attempt at a prompt.
    *
-   * A new session per selection rather than resuming a previous one: the answer is graded on
-   * the draft that exists when Finish is pressed, and resuming a three-day-old draft would
-   * grade text the candidate no longer remembers writing.
+   * A new session per selection, never a resumed one: the answer is graded on the draft that
+   * exists when Finish is pressed, and resuming a three-day-old draft would grade text the
+   * candidate no longer remembers writing.
    */
   const start = useCallback(
     async (slug: string) => {
@@ -178,7 +175,7 @@ export function ProseTrackView({
     try {
       // The current textarea value is saved first: blur is not guaranteed to have fired (the
       // button can be clicked while the field still has focus), and grading the stored draft
-      // rather than what is on screen would grade stale text.
+      // would grade stale text.
       await saveAnswer(answer);
       const r = await api<TrackGradeResult>(`/api/tracks/${kind}/${session.id}/finish`, { method: "POST" });
       setResult(r);
@@ -282,9 +279,8 @@ export function ProseTrackView({
 /**
  * The graded result: a band, the schedule, then one row per dimension with its quote.
  *
- * Rendered with the design round's `.dimension-row` markup rather than a second set of rules,
- * so a score reads the same wherever it comes from. The four dimensions differ, the presentation
- * does not.
+ * Rendered with the design round's `.dimension-row` markup, so a score reads the same wherever
+ * it comes from. The four dimensions differ; the presentation does not.
  */
 function TrackResults({ result }: { result: TrackGradeResult }) {
   const band =

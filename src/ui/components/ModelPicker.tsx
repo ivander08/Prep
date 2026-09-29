@@ -37,10 +37,9 @@ function formatContext(n: number | null): string {
 /**
  * Model picker.
  *
- * Prices come from the live catalog, converted from micro-IDR (Rp x 1e6) to Rp per 1M
- * tokens. A selection is a preference, not a guarantee: the catalog advertises models the
- * router cannot always serve, so the client still falls back and the UI reports when it
- * did.
+ * Prices come from the live catalog, converted from micro-IDR (Rp x 1e6) to Rp per 1M tokens.
+ * A selection is a preference, not a guarantee: the catalog advertises models the router cannot
+ * always serve, so the client still falls back and the UI reports when it did.
  */
 export function ModelPicker() {
   const [data, setData] = useState<ModelsResponse | null>(null);
