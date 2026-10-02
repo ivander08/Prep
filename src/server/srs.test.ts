@@ -8,7 +8,7 @@
 
 import { afterEach, describe, expect, test } from "bun:test";
 import { Rating, createEmptyCard } from "ts-fsrs";
-import { SCHEDULER, gradeAttempt, dueItems } from "./srs.ts";
+import { SCHEDULER, gradeAttempt, dueItems, reviewProject } from "./srs.ts";
 import { db } from "./db.ts";
 
 describe("gradeAttempt — behaviour, never self-report", () => {
@@ -97,7 +97,7 @@ describe("SCHEDULER configuration", () => {
 describe("dueItems — every scheduled kind is readable", () => {
   const PAST = new Date(Date.now() - 86_400_000).toISOString();
   const FUTURE = new Date(Date.now() + 30 * 86_400_000).toISOString();
-  const KINDS = ["pattern", "concept", "component", "design", "behavioral", "stack"] as const;
+  const KINDS = ["pattern", "concept", "component", "design", "behavioral", "stack", "project"] as const;
 
   /** The `items` + `item_cards` pair `ensureKindItem` writes, minus the scheduler. */
   function seed(kind: string, ref: string, due: string, title = `${kind} ${ref}`): void {
@@ -157,6 +157,34 @@ describe("dueItems — every scheduled kind is readable", () => {
     add("sql", "srs-test-unknown", PAST);
 
     expect(dueItems(200).some((d) => (d.kind as string) === "sql")).toBe(true);
+  });
+
+  test("a project module is scheduled under its composite ref, and each module gets its own card", () => {
+    const project = "srs-test-project";
+
+    // Two modules of one project. A project-level ref would collide on `items (kind, ref)` and the
+    // second grade would reschedule the first module.
+    //
+    // Graded with a `now` in the past: `Good` schedules four days out, and a card that is not yet
+    // due is (correctly) absent from `dueItems`.
+    const at = new Date(Date.now() - 30 * 86_400_000);
+    const a = reviewProject(project, "01-entry", "Entry", 3, at);
+    const b = reviewProject(project, "02-core", "Core", 3, at);
+    seeded.push(["project", `${project}/01-entry`], ["project", `${project}/02-core`]);
+
+    expect(a.intervalDays).toBeGreaterThan(0);
+    expect(b.intervalDays).toBeGreaterThan(0);
+
+    const refs = dueItems(200).filter((d) => d.ref.startsWith(`${project}/`)).map((d) => d.ref);
+    expect(refs).toContain(`${project}/01-entry`);
+    expect(refs).toContain(`${project}/02-core`);
+
+    const cards = db
+      .query<{ n: number }, [string]>(
+        "SELECT COUNT(*) AS n FROM items WHERE kind = 'project' AND ref LIKE ?",
+      )
+      .get(`${project}/%`)!.n;
+    expect(cards).toBe(2);
   });
 
   test("a DSA card appears in the same list as the item rows", () => {

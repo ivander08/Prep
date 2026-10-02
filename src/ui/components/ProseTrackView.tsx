@@ -282,10 +282,13 @@ export function ProseTrackView({
 /**
  * The graded result: a band, the schedule, then one row per dimension with its quote.
  *
- * Rendered with the design round's `.dimension-row` markup, so a score reads the same wherever
- * it comes from. The four dimensions differ; the presentation does not.
+ * Rendered with the design round's `.dimension-row` markup, so a score reads the same wherever it
+ * comes from. The four dimensions differ; the presentation does not.
+ *
+ * Exported because the project module view grades through the same rubric and must present the
+ * result identically; a second copy of this markup would drift from the first.
  */
-function TrackResults({ result }: { result: TrackGradeResult }) {
+export function TrackResults({ result }: { result: TrackGradeResult }) {
   const band =
     result.grade >= 4 ? "Strong" : result.grade === 3 ? "Meets expectations" : result.grade === 2 ? "Approaching" : "Below expectations";
 

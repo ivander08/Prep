@@ -319,6 +319,22 @@ type `RESET`.
 - **SQL grading ignores row order.** A submission returning correct rows in the wrong order passes
   even when the statement demands ordering. The reference query and the statement are both shown,
   so the difference is visible.
+- **Project learning needs a model key, and generation costs calls.** Importing a project is one
+  planning call plus one call per module (up to 12), and takes a few minutes. A module the model
+  fails to produce is **skipped, not fatal**: the run finishes `ready` and names the skipped modules
+  as a warning, so one bad module does not discard the rest. Pressing **Regenerate** retries, and
+  modules whose files did not change are reused rather than re-billed. The source is read from disk
+  on demand — only a scan summary (paths, sizes, per-language counts) is stored, never the file text.
+  Two limits are worth knowing: the scan reads at most 400 files, so on a very large repository the
+  curriculum is built from a representative sample rather than everything; and `## Key files`
+  citations are model-written, so treat a `path:line` as a pointer to check rather than a guarantee.
+- **The CV feature requires a local TeX distribution and poppler tools.** It probes at runtime
+  rather than bundling an engine, so **Render PDF** is unavailable until `pdflatex` (MiKTeX or
+  TeX Live) is on `PATH`, and the ATS checks need `pdftotext`/`pdffonts`/`pdfinfo` (from MiKTeX on
+  Windows, `poppler-utils` elsewhere). When the check tools are missing the render still succeeds
+  and the pane says why the checks are absent rather than showing eight false failures. The
+  checks are a measurement, not a guarantee: they read the PDF this machine produced, and a
+  different parser may still disagree.
 
 ---
 

@@ -1825,10 +1825,79 @@ pre.notice {
   margin-bottom: 6px;
 }
 
+/* --- Projects ------------------------------------------------------------- */
+
+/* The generation bar. Reuses the app's readout language: a hairline track with an amber fill,
+   the same idea as `.progress` at a coarser resolution. */
+.cv-bar {
+  height: 3px;
+  background: var(--rule);
+  overflow: hidden;
+}
+.cv-bar-fill { height: 100%; background: var(--signal); transition: width 0.3s ease; }
+
+/* --- CV ------------------------------------------------------------------- */
+
+/* Three columns, where every other view uses `.workspace`'s two. It carries the same frame
+   (border + margin-top) and the same divider treatment, so the CV view reads as one panel rather
+   than three floating columns — the earlier version had no outer border and no top margin, which
+   is why it looked unanchored next to every other track.
+
+   The first column is 260px rather than `.workspace`'s 340px minimum: it holds a document list
+   and a two-word button, and at 340 the editor column would be squeezed below the width a
+   two-column field grid needs. */
+.cv-layout {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.62fr) minmax(400px, 1.5fr) minmax(320px, 1.05fr);
+  gap: 0;
+  align-items: stretch;
+  border: 1px solid var(--rule);
+  margin-top: 14px;
+}
+.cv-layout > * { padding: 16px 18px; min-width: 0; }
+.cv-layout > * + * { border-left: 1px solid var(--rule); }
+
+.cv-entry { border: 1px solid var(--rule); padding: 10px 12px; margin-bottom: 10px; background: var(--panel); }
+.cv-entry-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; }
+.cv-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.cv-field { display: flex; flex-direction: column; gap: 3px; }
+.cv-field > span {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--faint);
+  font-family: var(--din);
+}
+.cv-field input,
+.cv-field textarea { width: 100%; }
+.cv-field textarea { min-height: 62px; resize: vertical; font-size: 12.5px; }
+
+.cv-preview { background: var(--panel); border: 1px solid var(--rule); height: 70vh; }
+.cv-preview iframe { width: 100%; height: 100%; border: none; background: #fff; }
+
+.cv-check { display: grid; grid-template-columns: 18px 1fr; gap: 8px; padding: 5px 2px; border-bottom: 1px solid var(--rule); font-size: 12.5px; }
+.cv-check:last-child { border-bottom: none; }
+.cv-check .mark { font-family: var(--mono); }
+.cv-check.pass .mark { color: var(--pass); }
+.cv-check.fail .mark { color: var(--fail); }
+.cv-check .detail { color: var(--dim); font-size: 11.5px; }
+
+.cv-kw { display: inline-block; margin: 2px 6px 2px 0; padding: 2px 7px; border: 1px solid var(--rule); font-family: var(--mono); font-size: 11.5px; }
+.cv-kw.hit { color: var(--pass); border-color: #33472c; }
+.cv-kw.miss { color: var(--dim); }
+.cv-kw .hint { color: var(--faint); font-size: 10px; }
+
+@media (max-width: 1180px) {
+  .cv-layout { grid-template-columns: 1fr; }
+  .cv-layout > * + * { border-left: none; border-top: 1px solid var(--rule); }
+}
+
 @media (max-width: 860px) {
   .phase { padding: 6px 6px; }
   .phase-name { font-size: 8.5px; letter-spacing: 0.06em; }
   .dimension-row { grid-template-columns: 110px 40px 1fr; }
   .signal-row { grid-template-columns: 16px 1fr; }
   .signal-words { grid-column: 2; }
+  .cv-grid-2 { grid-template-columns: 1fr; }
 }

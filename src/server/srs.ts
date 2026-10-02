@@ -259,7 +259,8 @@ export type DueTrack =
   | "design"
   | "behavioral"
   | "stack"
-  | "sql";
+  | "sql"
+  | "project";
 
 /**
  * Every item due for review, across every track, oldest-due first.
@@ -348,6 +349,24 @@ export function reviewSql(
   now = new Date(),
 ): { due: Date; intervalDays: number } {
   return reviewItem(ensureKindItem("sql", slug, title, null), grade, now);
+}
+
+/**
+ * Schedule a project module from its rubric grade. A fifth sibling of `reviewProse`/`reviewSql`.
+ *
+ * The ref is the COMPOSITE `<projectSlug>/<moduleSlug>`, not the project slug: `items` is unique
+ * on (kind, ref), so a project-level ref would give every module of a project one shared card and
+ * grading module 3 would reschedule module 1. The composite also gives the due row its identity,
+ * and `ProjectsView` resolves the project from the prefix.
+ */
+export function reviewProject(
+  projectSlug: string,
+  moduleSlug: string,
+  moduleTitle: string,
+  grade: Grade,
+  now = new Date(),
+): { due: Date; intervalDays: number } {
+  return reviewItem(ensureKindItem("project", `${projectSlug}/${moduleSlug}`, moduleTitle, null), grade, now);
 }
 
 /**

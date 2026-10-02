@@ -76,7 +76,7 @@ export type AttemptResponse = {
   intervalDays: number | null;
 };
 
-export type DueTrack = "dsa" | "pattern" | "concept" | "component" | "design" | "behavioral" | "stack" | "sql";
+export type DueTrack = "dsa" | "pattern" | "concept" | "component" | "design" | "behavioral" | "stack" | "sql" | "project";
 
 /** One item due for review, from any track. */
 export type DueTrackItem = {
@@ -105,10 +105,14 @@ export const DUE_TRACK_LABEL: Record<DueTrack, string> = {
   behavioral: "Behavioral",
   stack: "Stack",
   sql: "SQL",
+  project: "Project",
 };
 
 /** Which nav view a due item opens. */
-export const DUE_TRACK_VIEW: Record<DueTrack, "list" | "roadmap" | "fundamentals" | "components" | "design" | "behavioral" | "stack" | "sql"> = {
+export const DUE_TRACK_VIEW: Record<
+  DueTrack,
+  "list" | "roadmap" | "fundamentals" | "components" | "design" | "behavioral" | "stack" | "sql" | "projects"
+> = {
   dsa: "list",
   pattern: "roadmap",
   concept: "fundamentals",
@@ -117,6 +121,7 @@ export const DUE_TRACK_VIEW: Record<DueTrack, "list" | "roadmap" | "fundamentals
   behavioral: "behavioral",
   stack: "stack",
   sql: "sql",
+  project: "projects",
 };
 
 // ---------------------------------------------------------------------------
@@ -397,6 +402,119 @@ export type SqlRunResponse = {
   intervalDays: number | null;
   disclaimer: string;
 };
+
+// ---------------------------------------------------------------------------
+// Projects
+// ---------------------------------------------------------------------------
+
+export type ProjectStatus = "running" | "ready" | "error";
+
+export type ProjectSummary = {
+  id: number;
+  slug: string;
+  name: string;
+  root: string;
+  status: ProjectStatus;
+  error: string | null;
+  createdAt: string;
+  generatedAt: string | null;
+  modules: number;
+  learned: number;
+};
+
+export type ProjectQuestion = { q: string; lookFor: string[]; commonMistakes: string[] };
+
+export type ProjectModuleDetail = {
+  id: number;
+  projectId: number;
+  slug: string;
+  position: number;
+  title: string;
+  objective: string;
+  files: string[];
+  studyMd: string;
+  questions: ProjectQuestion[];
+  learned: boolean;
+  lastGrade: number | null;
+};
+
+export type GenerationProgress = {
+  phase: "scan" | "map" | "modules" | "questions" | "done";
+  done: number;
+  total: number;
+  note: string;
+};
+
+export type ProjectScanSummary = {
+  root: string;
+  fileCount: number;
+  totalBytes: number;
+  truncated: boolean;
+  byLang: Record<string, number>;
+};
+
+export type ProjectDetail = {
+  project: ProjectSummary;
+  stack: string[];
+  scan: ProjectScanSummary | null;
+  modules: ProjectModuleDetail[];
+  job: (GenerationProgress & { status: string }) | null;
+};
+
+export type ProjectSessionView = {
+  id: number;
+  projectId: number;
+  moduleSlug: string;
+  question: string;
+  answerMd: string;
+  startedAt: string;
+  endedAt: string | null;
+  grade: number | null;
+};
+
+// ---------------------------------------------------------------------------
+// CV
+// ---------------------------------------------------------------------------
+
+export type CvLink = { label: string; url: string };
+
+export type CvEntry = {
+  org: string;
+  role: string;
+  location?: string;
+  start: string;
+  end: string;
+  bullets: string[];
+};
+
+export type CvDoc = {
+  name: string;
+  headline?: string;
+  email: string;
+  phone?: string;
+  location?: string;
+  links: CvLink[];
+  summary?: string;
+  sections: Array<{ title: string; entries: CvEntry[] }>;
+  skills: Array<{ label: string; items: string[] }>;
+};
+
+export type CvSummary = { id: number; name: string; updatedAt: string };
+
+export type CvCheck = { id: string; label: string; ok: boolean; detail: string };
+
+export type CvKeywordRow = { term: string; present: boolean; inSummary: boolean; inSkills: boolean };
+
+export type CvCoverage = { rows: CvKeywordRow[]; covered: number; total: number };
+
+export type CvRenderResponse = {
+  tex: string;
+  checks: CvCheck[];
+  log: string;
+  engine: string;
+};
+
+export type CvTexStatus = { available: boolean; engine: string | null; tools: boolean };
 
 // ---------------------------------------------------------------------------
 // Design concept library

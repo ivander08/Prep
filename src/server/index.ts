@@ -62,6 +62,34 @@ import {
   LANGS as COMPONENT_LANGS,
 } from "./components.ts";
 import { getSqlProblem, listSqlProblems, runSql, sqlProgress } from "./sql/index.ts";
+import {
+  deleteProject,
+  finishModuleSession,
+  getProject,
+  getProjectModule,
+  latestOpenProjectSession,
+  listProjects,
+  loadModuleSession,
+  saveModuleAnswer,
+  startModuleSession,
+} from "./project.ts";
+import { regenerateProject, runGeneration, startGeneration } from "./project/generate.ts";
+import { resolveProjectRoot } from "./project/scan.ts";
+import {
+  cachePdf,
+  cachedPdf,
+  createCv,
+  deleteCv,
+  getCv,
+  listCvs,
+  setCvJd,
+  updateCv,
+} from "./cv/index.ts";
+import { compileLatex, detectLatexEngine, probeTool } from "./cv/compile.ts";
+import { renderLatex } from "./cv/latex.ts";
+import { runAtsChecks } from "./cv/checks.ts";
+import { jdCoverage } from "./cv/keywords.ts";
+import { validateDoc } from "./cv/doc.ts";
 
 migrate();
 
@@ -1104,6 +1132,330 @@ app.post("/api/sql/run", async (c) => {
 });
 
 // ---------------------------------------------------------------------------
+// Projects: learn a codebase you built
+// ---------------------------------------------------------------------------
+
+/**
+ * Route order note, the same one the design and prose sections carry: Hono matches in
+ * REGISTRATION order, so a literal path must be registered before a parameter path that could
+ * capture it.
+ *
+ * `/api/projects/module/:sid/...` has five segments and cannot be captured by the four-segment
+ * `/api/projects/:id/...` routes, so the two families are unambiguous. `GET /api/projects/:id/module`
+ * is registered before `DELETE /api/projects/:id` for readability only.
+ */
+
+/** Every imported project, with its learned/module tally. */
+app.get("/api/projects", (c) => c.json({ projects: listProjects() }));
+
+/**
+ * Import a project directory and start generating its curriculum.
+ *
+ * Returns 202 immediately: generation is up to 13 model calls and the client polls
+ * `GET /api/projects/:id` for progress. A bad root is a 400 with the path in the message, checked
+ * here rather than inside the run so the user gets the error on the click that caused it.
+ */
+app.post("/api/projects", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as { root?: string; name?: string };
+  if (typeof body.root !== "string" || body.root.trim().length === 0) {
+    return c.json({ error: "root is required" }, 400);
+  }
+
+  let root: string;
+  try {
+    root = resolveProjectRoot(body.root.trim());
+  } catch (e) {
+    return c.json({ error: e instanceof Error ? e.message : String(e) }, 400);
+  }
+
+  const name = typeof body.name === "string" && body.name.trim().length > 0 ? body.name.trim() : undefined;
+  const projectId = startGeneration({ root, name });
+  void runGeneration(projectId);
+  return c.json({ projectId }, 202);
+});
+
+/** One project: its modules, stack, scan summary and job progress. */
+app.get("/api/projects/:id", (c) => {
+  const id = Number(c.req.param("id"));
+  if (!Number.isInteger(id)) return c.json({ error: "bad id" }, 400);
+  const project = getProject(id);
+  if (!project) return c.json({ error: "unknown project" }, 404);
+  return c.json({ project });
+});
+
+/**
+ * Re-scan and regenerate a project.
+ *
+ * 409 while a run is in flight, because two concurrent runs would interleave their module writes
+ * and the second would clobber the first's progress. Modules whose file set is unchanged are kept,
+ * so this is safe to press: the graded sessions and review cards of the unchanged parts survive.
+ */
+app.post("/api/projects/:id/refresh", (c) => {
+  const id = Number(c.req.param("id"));
+  if (!Number.isInteger(id)) return c.json({ error: "bad id" }, 400);
+
+  const project = getProject(id);
+  if (!project) return c.json({ error: "unknown project" }, 404);
+  if (project.project.status === "running") {
+    return c.json({ error: "generation already running" }, 409);
+  }
+
+  db.run("UPDATE projects SET status = 'running', error = NULL WHERE id = ?", [id]);
+  if (project.project.generatedAt) {
+    void regenerateProject(id);
+  } else {
+    void runGeneration(id);
+  }
+  return c.json({ projectId: id }, 202);
+});
+
+/** Delete a project and everything derived from it, including its review cards. */
+app.delete("/api/projects/:id", (c) => {
+  const id = Number(c.req.param("id"));
+  if (!Number.isInteger(id)) return c.json({ error: "bad id" }, 400);
+  try {
+    deleteProject(id);
+    return c.json({ ok: true });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return c.json({ error: msg }, msg.startsWith("unknown project") ? 404 : 400);
+  }
+});
+
+/** One module of a project, plus the session still in progress on it. */
+app.get("/api/projects/:id/module", (c) => {
+  const id = Number(c.req.param("id"));
+  if (!Number.isInteger(id)) return c.json({ error: "bad id" }, 400);
+  const slug = c.req.query("slug");
+  if (!slug) return c.json({ error: "slug query parameter is required" }, 400);
+
+  const module = getProjectModule(id, slug);
+  if (!module) return c.json({ error: "unknown module" }, 404);
+
+  const project = getProject(id);
+  const session = project ? latestOpenProjectSession(id) : null;
+  return c.json({ module, session });
+});
+
+/**
+ * Start (or resume) a session on one of a module's questions.
+ *
+ * Resuming matters here as much as it does in the prose tracks: the answer is prose and takes
+ * minutes to write, so a reload must land back on the work.
+ */
+app.post("/api/projects/:id/session", async (c) => {
+  const id = Number(c.req.param("id"));
+  if (!Number.isInteger(id)) return c.json({ error: "bad id" }, 400);
+
+  const body = (await c.req.json().catch(() => ({}))) as { slug?: string; question?: string };
+  if (typeof body.slug !== "string") return c.json({ error: "slug is required" }, 400);
+  if (typeof body.question !== "string") return c.json({ error: "question is required" }, 400);
+
+  try {
+    const sessionId = startModuleSession(id, body.slug, body.question);
+    return c.json({ sessionId, session: loadModuleSession(sessionId) });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return c.json({ error: msg }, msg.startsWith("unknown module") ? 404 : 400);
+  }
+});
+
+/** Persist the answer draft. */
+app.post("/api/projects/module/:sid/answer", async (c) => {
+  const sid = Number(c.req.param("sid"));
+  if (!Number.isInteger(sid)) return c.json({ error: "bad id" }, 400);
+  const body = (await c.req.json().catch(() => ({}))) as { answerMd?: string };
+  if (typeof body.answerMd !== "string") return c.json({ error: "answerMd is required" }, 400);
+
+  try {
+    saveModuleAnswer(sid, body.answerMd);
+    return c.json({ ok: true });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return c.json({ error: msg }, msg.startsWith("unknown project session") ? 404 : 400);
+  }
+});
+
+/**
+ * Grade the answer against the module's answer key and schedule the module.
+ *
+ * 409 for an already-graded session (a real client bug, not a transient failure), 502 for a grading
+ * failure, which leaves the session ungraded so the answer is intact and resubmittable.
+ */
+app.post("/api/projects/module/:sid/finish", async (c) => {
+  const sid = Number(c.req.param("sid"));
+  if (!Number.isInteger(sid)) return c.json({ error: "bad id" }, 400);
+  try {
+    return c.json(await finishModuleSession(sid));
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    const status = msg.startsWith("unknown project session")
+      ? 404
+      : msg === "session already graded"
+        ? 409
+        : 502;
+    return c.json({ error: msg }, status);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// CV: ATS-friendly LaTeX
+// ---------------------------------------------------------------------------
+
+/**
+ * Route order: `/api/cv/tex` is registered BEFORE `/api/cv/:id`, because Hono matches in
+ * registration order and the parameter route would otherwise capture "tex" and reject it as a bad id.
+ */
+
+/** Every saved CV. */
+app.get("/api/cv", (c) => c.json({ documents: listCvs() }));
+
+/**
+ * Whether this machine can render, and whether it can check.
+ *
+ * Probed at runtime rather than assumed, so the UI can show install instructions instead of a
+ * button that fails. `tools` reports the poppler utilities the ATS checks need, which come from
+ * MiKTeX on Windows and `poppler-utils` on Linux.
+ */
+app.get("/api/cv/tex", async (c) => {
+  const engine = await detectLatexEngine();
+  const tools = (await probeTool("pdftotext")) && (await probeTool("pdffonts"));
+  return c.json({ available: engine !== null, engine, tools });
+});
+
+/** Create a document with one empty entry under each canonical section. */
+app.post("/api/cv", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as { name?: string };
+  const name = typeof body.name === "string" && body.name.trim().length > 0 ? body.name.trim() : "Untitled CV";
+  const id = createCv(name);
+  return c.json({ id, doc: getCv(id)!.doc });
+});
+
+app.get("/api/cv/:id", (c) => {
+  const id = Number(c.req.param("id"));
+  if (!Number.isInteger(id)) return c.json({ error: "bad id" }, 400);
+  const found = getCv(id);
+  if (!found) return c.json({ error: "unknown CV" }, 404);
+  return c.json(found);
+});
+
+app.put("/api/cv/:id", async (c) => {
+  const id = Number(c.req.param("id"));
+  if (!Number.isInteger(id)) return c.json({ error: "bad id" }, 400);
+
+  const body = (await c.req.json().catch(() => ({}))) as { doc?: unknown };
+  const check = validateDoc(body.doc);
+  if (!check.ok) return c.json({ error: "invalid document", errors: check.errors }, 400);
+
+  try {
+    updateCv(id, check.value);
+    return c.json({ ok: true });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return c.json({ error: msg }, msg.startsWith("unknown CV") ? 404 : 400);
+  }
+});
+
+app.delete("/api/cv/:id", (c) => {
+  const id = Number(c.req.param("id"));
+  if (!Number.isInteger(id)) return c.json({ error: "bad id" }, 400);
+  deleteCv(id);
+  return c.json({ ok: true });
+});
+
+/** Store the job description and report which of its terms the CV covers. */
+app.post("/api/cv/:id/jd", async (c) => {
+  const id = Number(c.req.param("id"));
+  if (!Number.isInteger(id)) return c.json({ error: "bad id" }, 400);
+
+  const body = (await c.req.json().catch(() => ({}))) as { jd?: string };
+  const jd = typeof body.jd === "string" ? body.jd : "";
+
+  const found = getCv(id);
+  if (!found) return c.json({ error: "unknown CV" }, 404);
+
+  setCvJd(id, jd);
+  return c.json({ coverage: jdCoverage(jd, found.doc) });
+});
+
+/**
+ * Render the document to LaTeX and compile it.
+ *
+ * The PDF is cached under `prep:cv:<id>:pdf` so the `<iframe>` load does not recompile: a browser
+ * can issue more than one GET per iframe, and each compile is a 2-4 second subprocess pair.
+ *
+ * 409 when no engine is installed (the UI shows the install instructions), 422 when the compile
+ * itself fails, with the extracted log lines so the user can see which line broke.
+ */
+app.post("/api/cv/:id/render", async (c) => {
+  const id = Number(c.req.param("id"));
+  if (!Number.isInteger(id)) return c.json({ error: "bad id" }, 400);
+
+  const found = getCv(id);
+  if (!found) return c.json({ error: "unknown CV" }, 404);
+
+  const engine = await detectLatexEngine();
+  if (!engine) {
+    return c.json(
+      {
+        error: "no LaTeX engine found",
+        install:
+          "Install MiKTeX (Windows) or TeX Live (Linux/macOS) so `pdflatex` is on PATH, then render again.",
+      },
+      409,
+    );
+  }
+
+  const tex = renderLatex(found.doc);
+  const result = await compileLatex(tex);
+  if (!result.ok) {
+    return c.json({ error: result.error, log: result.log }, 422);
+  }
+
+  cachePdf(id, result.pdf);
+  const checks = await runAtsChecks(result.pdf, found.doc);
+  return c.json({ tex, checks, log: result.log.slice(-4_000), engine });
+});
+
+/**
+ * The compiled PDF. The first non-JSON response in this server.
+ *
+ * Reads the cache rather than compiling: see the render route. A 404 here means "render first", and
+ * the branch happens BEFORE the `Response` is constructed so the miss is JSON while the hit is
+ * `application/pdf`.
+ *
+ * `Content-Disposition` is `inline` unless `?download=1`, because this URL is BOTH the preview's
+ * `<iframe src>` and the download link. With `attachment` on both, the iframe would trigger a file
+ * download instead of displaying the PDF, which is the one thing the preview pane must not do.
+ */
+app.get("/api/cv/:id/pdf", (c) => {
+  const id = Number(c.req.param("id"));
+  if (!Number.isInteger(id)) return c.json({ error: "bad id" }, 400);
+
+  const found = getCv(id);
+  if (!found) return c.json({ error: "unknown CV" }, 404);
+
+  const pdf = cachedPdf(id);
+  if (!pdf) return c.json({ error: "not rendered yet — POST /api/cv/:id/render first" }, 404);
+
+  const slug =
+    found.doc.name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "cv";
+
+  const disposition = c.req.query("download") === "1" ? "attachment" : "inline";
+
+  return new Response(Buffer.from(pdf), {
+    headers: {
+      "Content-Type": "application/pdf",
+      "Content-Disposition": `${disposition}; filename="${slug}.pdf"`,
+      "Content-Length": String(pdf.byteLength),
+    },
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Models
 // ---------------------------------------------------------------------------
 
@@ -1267,6 +1619,11 @@ app.get("/api/reset/preview", (c) => {
       milestones: count("milestones"),
       design_sessions: count("design_sessions"),
       track_sessions: count("track_sessions"),
+      project_sessions: count("project_sessions"),
+      project_modules: count("project_modules"),
+      project_jobs: count("project_jobs"),
+      projects: count("projects"),
+      cv_documents: count("cv_documents"),
     },
     keeps: {
       problems: count("problems"),
@@ -1301,6 +1658,10 @@ app.post("/api/reset", async (c) => {
     for (const t of [
       "tutor_turns", "attempts", "cards", "item_cards", "pattern_mastery", "milestones",
       "design_sessions", "track_sessions",
+      // Children before parent: `project_modules`, `project_jobs` and `project_sessions` all
+      // reference `projects(id)`, and with foreign_keys ON the reverse order fails.
+      "project_sessions", "project_modules", "project_jobs", "projects",
+      "cv_documents",
     ]) {
       const n = db.query<{ n: number }, []>(`SELECT COUNT(*) AS n FROM ${t}`).get()?.n ?? 0;
       db.run(`DELETE FROM ${t}`);

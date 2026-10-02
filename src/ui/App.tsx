@@ -17,6 +17,8 @@ import { SqlView } from "./components/SqlView";
 import { TipsPanel } from "./components/TipsPanel";
 import { Row } from "./components/Row";
 import { ProseTrackView } from "./components/ProseTrackView";
+import { ProjectsView } from "./components/ProjectsView";
+import { CvView } from "./components/CvView";
 import { anyDialogOpen } from "./components/Dialog";
 import { NAV_SHORTCUTS, typingTarget } from "./shortcuts";
 // Imported, not referenced by URL: Vite rewrites the path to the hashed filename at build time,
@@ -75,6 +77,14 @@ const NAV: Array<{ label: string; items: Array<readonly [View, string]> }> = [
     ],
   },
   {
+    label: "Codebase",
+    items: [["projects", "Projects"]],
+  },
+  {
+    label: "Career",
+    items: [["cv", "CV"]],
+  },
+  {
     label: "Analysis",
     items: [
       ["weakness", "Weakness"],
@@ -108,7 +118,9 @@ type View =
   | "components"
   | "sql"
   | "behavioral"
-  | "stack";
+  | "stack"
+  | "projects"
+  | "cv";
 
 /**
  * The `g` chord, wired from the shared table in `shortcuts.ts`.
@@ -444,6 +456,12 @@ export function App() {
             onSolved={onSolved}
           />
         ) : null}
+
+        {view === "projects" ? (
+          <ProjectsView initialTarget={trackTarget?.kind === "project" ? trackTarget.ref : null} />
+        ) : null}
+
+        {view === "cv" ? <CvView /> : null}
 
         {view === "weakness" ? <MasteryView /> : null}
 

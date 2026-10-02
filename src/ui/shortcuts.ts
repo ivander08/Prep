@@ -31,6 +31,8 @@ export const NAV_SHORTCUTS: NavShortcut[] = [
   { key: "d", view: "design", label: "Design" },
   { key: "b", view: "components", label: "Build" },
   { key: "q", view: "sql", label: "SQL" },
+  { key: "p", view: "projects", label: "Projects" },
+  { key: "c", view: "cv", label: "CV" },
   { key: "s", view: "settings", label: "Settings" },
 ];
 

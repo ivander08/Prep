@@ -263,14 +263,20 @@ function validateGrade(value: unknown): { ok: true; value: GradePayload } | { ok
  * text that moved it.
  */
 export async function gradeProseAnswer(opts: {
-  /** Which rubric to apply. Both use the same four dimensions; only the framing differs. */
-  kind: "behavioral" | "stack";
+  /** Which rubric to apply. All three use the same four dimensions; only the framing differs. */
+  kind: "behavioral" | "stack" | "project";
   title: string;
   statement: string;
   /** What a strong answer contains, from the catalogue. The answer key. */
   lookFor: string[];
   /** Where candidates typically go wrong on this one. */
   commonMistakes: string[];
+  /**
+   * Ground-truth material the answer is scored against. Project modules pass their study
+   * document, which cites the module's own source files. Absent for behavioral and stack, whose
+   * answer keys are the `lookFor` bullets alone.
+   */
+  reference?: string;
   /** The candidate's answer. */
   answer: string;
 }): Promise<TrackGradeResult> {
@@ -279,7 +285,9 @@ export async function gradeProseAnswer(opts: {
   const framing =
     opts.kind === "behavioral"
       ? "You score a written answer to a behavioral interview question. Score what the candidate DID, as evidenced by their own words — not what they seemed to believe or intend."
-      : "You score a written answer to an engineering-depth interview question. Score the correctness and concreteness of the reasoning as evidenced by their own words — not how confident the writing sounds.";
+      : opts.kind === "project"
+        ? "You score a written answer about the candidate's own codebase. Score the correctness and concreteness of the reasoning against the answer key, and treat a claim that contradicts the supplied reference material as a low score however confidently it is written."
+        : "You score a written answer to an engineering-depth interview question. Score the correctness and concreteness of the reasoning as evidenced by their own words — not how confident the writing sounds.";
 
   const signalsBlock = [
     `words: ${signals.words}`,
@@ -310,6 +318,15 @@ export async function gradeProseAnswer(opts: {
     "",
     "# Where candidates typically go wrong on this one",
     ...opts.commonMistakes.map((m) => `- ${m}`),
+    // Ground truth, when the caller has it. Capped so a long study document cannot crowd the
+    // candidate's own answer out of the window.
+    ...(opts.reference && opts.reference.trim().length > 0
+      ? [
+          "",
+          "# Reference material for this module",
+          opts.reference.slice(0, 20_000),
+        ]
+      : []),
   ].join("\n");
 
   const user = [

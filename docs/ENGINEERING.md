@@ -303,6 +303,9 @@ src/server/
   design/        5-phase round: probe policy, reveal detector, rubric
   tutor/         hint ceiling, code-reveal detection, model routing
   tracks/        behavioral + stack: session state and orchestration
+  project/       project learning: directory scanner + curriculum generator
+  project.ts     project learning: reads and the module session lifecycle
+  cv/            ATS CV: doc model, LaTeX render, compile, checks, keywords
   index.ts       Hono API, and the built UI when there is one
 
 src/ui/
@@ -329,6 +332,8 @@ No ORM, no state library, no UI kit. Dependencies are `hono`, `ts-fsrs`, `react`
 | `items` + `item_cards` | review state for every non-DSA track, keyed by `item_id` |
 | `concept_exercises`, `component_exercises` | executable track content |
 | `design_sessions`, `track_sessions` | prose-track rounds and their transcripts |
+| `projects`, `project_modules`, `project_jobs`, `project_sessions` | an imported codebase, its generated curriculum, the generation job the UI polls, and one row per graded module answer |
+| `cv_documents` | CVs as structured JSON; the `.tex` and PDF are derived on demand |
 | `pattern_mastery`, `milestones` | derived readouts, recomputed never incremented |
 
 The non-DSA tracks live in `items` + `item_cards` rather than `cards`, because DSA review is keyed
@@ -349,6 +354,100 @@ reached while the server was down still lands on the next read, and awarding is
 `activeDays` counts days inside the 52-week calendar window rather than over all history, because
 it's printed directly beneath that grid and an all-time count can exceed the number of filled
 cells the reader can see.
+
+---
+
+## Project learning: reading a directory the user points at
+
+The scanner (`project/scan.ts`) is the only code in the repo that reads an arbitrary directory, so
+its rules are explicit and conservative. Symlinks are never followed — a symlinked `node_modules`
+or a loop cannot be traversed. The heavy build and vendor directories are named rather than guessed,
+and `VENDORED_RE` catches a checked-in third-party checkout by name at ANY depth: the exact-name
+list cannot see `training/.venv`, because the walker reaches it through `training/`. A NUL byte in
+the first 8 KB makes a file binary; a file over 256 KB is skipped as large; a `.min.js` or a
+`.js`/`.css` whose first line exceeds 400 chars is skipped as minified. A single unreadable file is
+skipped, not fatal: `readFile` inside a `try`/`catch` per file. The hard caps (8 MB, 400 files) exist
+so a mistaken path cannot read the machine into memory.
+
+**The order candidates are considered in is what decides what a large project's curriculum can see**,
+and this was got wrong twice on a real repo. `id-eval` has 57,341 files; ordering by path depth spent
+359 of the 400-file budget inside `training/` (a vendored `training/.llamacpp` plus a nested
+`training/.venv`) and left 14 slots for the project's own `src/ideval/**`. Candidates are therefore
+grouped by top-level directory, ranked within each (`sourceRank`: real source, then prose and config,
+then anything under a dot-directory), and **round-robined across groups**. Every part of the project
+gets a turn before any part gets a second one, which is what "representative sample" has to mean when
+the sample is capped. After the fix the same repo scans as 61 files, untruncated, all of them its own.
+
+Generation is two model calls deep: one to plan the module map from the file listing, then one per
+module from that module's actual file text. `project_jobs` is the progress channel the UI polls, and
+the HTTP request that starts a run returns 202 immediately.
+
+A path the model proposes is accepted when the scan read it, **or** when it exists on disk and is the
+kind of file the scanner would have read. That second case is not a loophole: because the scan is
+capped, the model — which sees only the capped list — legitimately names real files the cap excluded,
+and treating those as hallucinations threw away its best modules and failed the run on a project whose
+source is perfectly scannable. `existsSync` is still required, so a genuinely invented path is rejected
+rather than becoming a module with no file text.
+
+A module that comes back malformed — missing one of the six required `##` sections, or carrying fewer
+than four questions — is **skipped, not fatal**. The earlier modules are already written, and aborting
+the run because its ninth module failed discards eight good ones. The run ends `ready` with the skipped
+titles named in `projects.error`, surfaced as a warning. A module with MORE than six questions is
+trimmed to six rather than rejected; the model returned seven on a real run, and one extra question is
+not worth failing a module over. Only a run that produced nothing at all is an error.
+
+The module call's budget is `MODULE_MAX_TOKENS = 16_000`, and the number was measured rather than
+chosen. A module must emit a ~12,000-character study document plus six questions, and the budget that
+works depends on the INPUT size, because a bigger payload makes the model reason longer before it
+emits its tool call. Measured on `deepseek-v4-1-flash`:
+
+| payload | max_tokens | result |
+|---|---|---|
+| 35k chars | 8,000 | `finish=length`, **no tool call at all** |
+| 60k chars | 8,000 | `finish=length`, **no tool call at all** |
+| 60k chars | 16,000 | `finish=tool_calls`, valid module |
+| 35k chars | 16,000 | `finish=tool_calls`, valid module |
+
+At 8,000 the entire budget goes to reasoning and nothing comes back, which surfaces only as
+"structured output failed validation twice". This is exactly the trap `tutor/client.ts` documents as
+Rule 3, and the fix is the same one: give the budget the output actually needs.
+
+Regeneration identifies a module by its FILE SET, not its title. A planned module whose files exactly
+match an existing module's is reused verbatim: no model call, and the slug — and therefore the
+`items` row, the `item_cards` row and every graded `project_sessions` row — survives untouched.
+`items.ref` is the composite `<projectSlug>/<moduleSlug>`, because `items` is unique on
+`(kind, ref)` and a project-level ref would give every module one shared card.
+
+---
+
+## The CV: why the preamble is not decoration
+
+The `.tex` template's preamble is an ATS requirement, and the parts of it that matter were measured
+rather than assumed. On MiKTeX 26.1, with the document this repo's test fixture builds:
+
+| preamble | `pdffonts` | `pdftotext` |
+|---|---|---|
+| `[T1]{fontenc}` + `lmodern` + `cmap` | Type 1, `emb=yes uni=yes` | `financial` intact |
+| `lmodern` + `cmap`, no `fontenc` | Type 1, `emb=yes uni=yes` | `financial` intact |
+| `[T1]{fontenc}` + `cmap`, **no `lmodern`** | **Type 3, `emb=yes uni=no`** | **`nancial`, `ecient`, `workow`** |
+| no font packages at all | Type 1 (Computer Modern), `uni=yes` | `financial` intact |
+
+The third row is the failure this feature exists to catch, and it is why `keywords-survive` and
+`fonts-embedded` are checks: dropping `lmodern` makes pdfTeX fall back to Type 3 bitmap fonts with
+no ToUnicode map, and every ligature disappears from the extracted text. `cmap` alone changes nothing
+on this machine — `lmodern` already ships Type 1 fonts with a ToUnicode map — but it stays as the
+portable belt to `lmodern`'s braces for a distribution whose fallback differs. The regression test
+targets the line that is observable here, because a check that cannot fail is not a check.
+
+The rest of the template is structural: one column (a two-column template scrambles extraction
+order), plain-text headings (a parser classifies a section by its heading string), a pipe-separated
+contact line with no icon fonts (an icon extracts as junk glued to the email), and dates on the title
+line via `\hfill` rather than in a separate column.
+
+`GET /api/cv/:id/pdf` is the only non-JSON response in the server, and it serves `inline` unless
+`?download=1`. That distinction is load-bearing: the same URL is both the preview's `<iframe src>`
+and the download link, and `attachment` on both makes the iframe trigger a file download instead of
+displaying the PDF.
 
 ---
 
@@ -405,12 +504,21 @@ offline. `offlineInstaller` (~127 MB) and `fixedVersion` (~180 MB) buy nothing h
 
 ```bash
 bunx tsc --noEmit
-bun test                                  # 195 tests, 17 files, ~220 s
+bun test                                  # ~232 tests, 22 files, ~250 s
 bun run src/server/concepts/verify.ts     # every exemplar against its own tests
 ```
 
 `bun test` runs the full matrix, which compiles and executes every exemplar in all five languages.
 That's the slow part and the reason the suite takes minutes rather than seconds.
+
+The CV tests compile real LaTeX through the machine's own engine and are skipped when `pdflatex` is
+absent, so the suite stays green on a machine without TeX. They are also the slowest single file
+after the language matrix, which is expected: each case runs the engine twice.
+
+The project-learning tests stub `tutor/client.ts` with canned tool payloads but run the REAL
+validators, so they assert the shapes the generator actually accepts rather than what a stub agreed
+to accept. They call `migrate()` against the temp copy the test preload creates, because that copy's
+schema comes from the live database and does not know about migrations applied since.
 
 For a throwaway database with plausible progress, for screenshots or for poking at the UI without
 touching real progress:
